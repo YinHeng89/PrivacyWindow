@@ -152,12 +152,18 @@ enum BlurProcessor {
             return (image, nil)
         }
 
-        // Grow the patch by roughly a blur radius. The screenshot is captured
+        // Grow the patch well past a blur radius. The screenshot is captured
         // one to two frames before it is shown, so the window has moved on by
         // then; without a margin that is wide enough to cover the move, the
         // window's pixels reappear just outside the cutout — a halo that
         // flickers with the drag speed.
-        let pad = max(blurRadius, 8) * scale
+        //
+        // It also has to outrun the blur itself: `CIGaussianBlur` reads the
+        // radius as roughly sigma, so its visible spread reaches about three
+        // radii out. Padding by a single radius leaves the patch's own hard edge
+        // inside that spread, which at the strongest setting showed up as a
+        // faint rectangle of flat colour floating around the cutout.
+        let pad = max(blurRadius * 2.5, 8) * scale
         let target = hole.insetBy(dx: -pad, dy: -pad).intersection(extent)
         guard target.width > 0, target.height > 0 else { return (image, nil) }
 

@@ -1,4 +1,5 @@
 import AppKit
+import PrivacyCore
 
 @main
 struct PrivacyWindowApp {

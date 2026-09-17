@@ -32,7 +32,6 @@ final class BlurOverlay {
 
     /// A blurred picture waiting for the next display-link tick.
     private var pendingPicture: CGImage?
-    private var pendingScale: CGFloat = 1
     /// Brightness outside the cutout from the last picture, smoothed so a
     /// momentary sample cannot flip the edge colour.
     private var surroundLuminance: CGFloat?
@@ -77,6 +76,7 @@ final class BlurOverlay {
         // A layer created in code defaults to a contentsScale of 1, which would
         // rasterize the cutout's edges at half the display's resolution and
         // leave them visibly soft against the sharp window behind them.
+        hostLayer.contentsScale = screen.backingScaleFactor
         maskLayer.contentsScale = screen.backingScaleFactor
         view.layer = hostLayer
 
@@ -105,17 +105,18 @@ final class BlurOverlay {
         }
     }
 
-    /// Radius (points) of the focus-window cutout corners. macOS does not
-    /// expose a window's true corner radius, so this is a close approximation
-    /// that makes the clear hole hug standard rounded document windows.
-    var cornerRadius: CGFloat = 18
+    /// Radius (points) of the focus-window cutout corners. macOS window corners
+    /// measure roughly 10pt since Big Sur; matching them keeps the hole hugging
+    /// the window. A radius *larger* than the window's is the bad direction —
+    /// the blur then covers the window's own rounded corners, which reads as the
+    /// corners being bitten off.
+    var cornerRadius: CGFloat = 10
 
     /// Stages a freshly blurred picture. It is not shown until the next
     /// `commit(hole:)`, which pairs it with the cutout position of that very
     /// frame.
     func setPicture(_ frame: BlurredFrame) {
         pendingPicture = frame.image
-        pendingScale = frame.scale
         // The edge colour only needs to track slow changes in the background,
         // and a raw per-frame sample would make it flicker on busier desktops.
         if let sample = frame.surroundLuminance {
@@ -138,7 +139,6 @@ final class BlurOverlay {
         var pictureArrived = false
         if let picture = pendingPicture {
             hostLayer.contents = picture
-            hostLayer.contentsScale = pendingScale
             hostLayer.frame = CGRect(origin: .zero, size: screen.frame.size)
             pendingPicture = nil
             pictureArrived = true
@@ -241,14 +241,12 @@ final class BlurOverlay {
                 width: ring.width,
                 height: ring.height
             )
-            let radius = min(corner + outset, min(local.width, local.height) / 2)
+            // Radii come from the ring's position on screen, not from the
+            // layer-local rect: only the screen-space rect knows whether the
+            // cutout is clipped by a display edge.
+            let radii = Self.cornerRadii(for: ring, in: visible.size, radius: corner + outset)
             layer.frame = frame
-            layer.path = CGPath(
-                roundedRect: local,
-                cornerWidth: radius,
-                cornerHeight: radius,
-                transform: nil
-            )
+            layer.path = Self.roundedRectPath(local, radii)
             layer.strokeColor = base.withAlphaComponent(Self.edgeRingAlphas[index]).cgColor
         }
     }
@@ -299,7 +297,7 @@ final class BlurOverlay {
     /// Number, thickness and opacity of the rings making up the cutout's edge.
     /// Six thin rings on an exponential falloff over 12pt: dense enough to
     /// read as a shadow rather than a stroked border, since a hard plateau
-    /// right at the edge is exactly what makes a ring look like an outline.
+    /// right at the edge is exactly what makes a ring look like a border.
     ///
     /// Deliberately faint. The job is only to separate a window from a
     /// similarly coloured background — anything stronger starts to look like a
@@ -333,14 +331,98 @@ final class BlurOverlay {
         )
     }
 
+    /// Per-corner radii for `rect`, with any corner sitting on a display edge
+    /// squared off.
+    ///
+    /// A window spanning two displays is clipped by each display's boundary, so
+    /// on each display the cutout has one straight edge at the seam. Rounding
+    /// that edge too leaves a blurred wedge at the top and bottom of the seam
+    /// — two of them meeting to form a visible notch right where the two halves
+    /// should join seamlessly.
+    ///
+    /// Corners are named for what the user sees (`top` is the far edge from the
+    /// origin in the layer's bottom-left space, i.e. `maxY`).
+    struct CornerRadii {
+        let bottomLeft: CGFloat
+        let bottomRight: CGFloat
+        let topRight: CGFloat
+        let topLeft: CGFloat
+    }
+
+    static func cornerRadii(for rect: CGRect, in size: CGSize, radius: CGFloat) -> CornerRadii {
+        let clamped = min(max(radius, 0), min(rect.width, rect.height) / 2)
+        let atLeft = rect.minX <= 0.5
+        let atRight = rect.maxX >= size.width - 0.5
+        let atBottom = rect.minY <= 0.5
+        let atTop = rect.maxY >= size.height - 0.5
+        return CornerRadii(
+            bottomLeft: atLeft || atBottom ? 0 : clamped,
+            bottomRight: atRight || atBottom ? 0 : clamped,
+            topRight: atRight || atTop ? 0 : clamped,
+            topLeft: atLeft || atTop ? 0 : clamped
+        )
+    }
+
+    /// A closed rounded-rectangle path with a radius per corner.
+    ///
+    /// `CGPath` only offers a single uniform radius, so the corners are drawn
+    /// one at a time; a zero radius falls back to a plain corner rather than
+    /// relying on how `addArc` treats a degenerate radius.
+    private static func roundedRectPath(_ r: CGRect, _ radii: CornerRadii) -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: r.minX + radii.bottomLeft, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX - radii.bottomRight, y: r.minY))
+        if radii.bottomRight > 0 {
+            path.addArc(
+                tangent1End: CGPoint(x: r.maxX, y: r.minY),
+                tangent2End: CGPoint(x: r.maxX, y: r.minY + radii.bottomRight),
+                radius: radii.bottomRight
+            )
+        } else {
+            path.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+        }
+        path.addLine(to: CGPoint(x: r.maxX, y: r.maxY - radii.topRight))
+        if radii.topRight > 0 {
+            path.addArc(
+                tangent1End: CGPoint(x: r.maxX, y: r.maxY),
+                tangent2End: CGPoint(x: r.maxX - radii.topRight, y: r.maxY),
+                radius: radii.topRight
+            )
+        } else {
+            path.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        }
+        path.addLine(to: CGPoint(x: r.minX + radii.topLeft, y: r.maxY))
+        if radii.topLeft > 0 {
+            path.addArc(
+                tangent1End: CGPoint(x: r.minX, y: r.maxY),
+                tangent2End: CGPoint(x: r.minX, y: r.maxY - radii.topLeft),
+                radius: radii.topLeft
+            )
+        } else {
+            path.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        }
+        path.addLine(to: CGPoint(x: r.minX, y: r.minY + radii.bottomLeft))
+        if radii.bottomLeft > 0 {
+            path.addArc(
+                tangent1End: CGPoint(x: r.minX, y: r.minY),
+                tangent2End: CGPoint(x: r.minX + radii.bottomLeft, y: r.minY),
+                radius: radii.bottomLeft
+            )
+        } else {
+            path.addLine(to: CGPoint(x: r.minX, y: r.minY))
+        }
+        path.closeSubpath()
+        return path
+    }
+
     /// An even-odd path covering the whole screen with the cutout subtracted.
     private static func maskPath(screen: CGSize, hole: NSRect?, cornerRadius: CGFloat) -> CGPath {
         let path = CGMutablePath()
         path.addRect(CGRect(origin: .zero, size: screen))
         if let hole, !hole.isEmpty {
             let flipped = Self.flipped(hole, in: screen)
-            let cr = min(cornerRadius, min(flipped.width, flipped.height) / 2)
-            path.addRoundedRect(in: flipped, cornerWidth: cr, cornerHeight: cr)
+            let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
+            path.addPath(Self.roundedRectPath(flipped, radii))
         }
         return path
     }

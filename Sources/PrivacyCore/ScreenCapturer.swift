@@ -23,14 +23,23 @@ final class ScreenCapturer {
         let keepChrome: Bool
     }
 
-    /// Screenshots are downscaled to roughly this width. A blur throws away the
+    /// Screenshots are downscaled to at most this width. A blur throws away the
     /// detail the extra pixels would carry, so they cost latency and power for
-    /// nothing — and on a 5K panel this is the difference between reading back
-    /// about 14 MB and about 3 MB every frame.
-    private static let targetCaptureWidth: CGFloat = 1600
-    /// Set if ScreenCaptureKit ever refuses to scale into the requested buffer.
-    /// From then on we capture at native resolution: slower, but never wrong.
-    private var downscaleDisabled = false
+    /// nothing — and on a 4K+ panel this is the difference between reading back
+    /// roughly 15 MB and roughly 6 MB every frame.
+    nonisolated private static let targetCaptureWidth: CGFloat = 1600
+    /// How long a display stays on native resolution after ScreenCaptureKit
+    /// declines to scale into the requested buffer.
+    ///
+    /// The refusal is usually transient — it happens during a resolution switch
+    /// animation, or on the first capture after a display wakes. Latching the
+    /// display off downscaling forever would keep a 5K panel reading back
+    /// ~59 MB per frame instead of ~6 MB for the rest of the session, so the
+    /// penalty expires and the downscale is retried. One refused frame costs a
+    /// minute of slower captures, not the whole session.
+    private static let downscaleRetryDelay: TimeInterval = 60
+    /// Display → time until which downscaling is disabled for it.
+    private var downscaleDisabledUntil: [CGDirectDisplayID: TimeInterval] = [:]
 
     private var filters: [CGDirectDisplayID: (exclusion: Exclusion?, filter: SCContentFilter)] = [:]
     /// Quiet period after a failure, per display. Without it a persistently
@@ -43,12 +52,26 @@ final class ScreenCapturer {
     /// How much to shrink a display this wide. Scales with the panel so a
     /// 1080p screen keeps every pixel it has while a 6K one does not pay for
     /// four times the pixels of a 1440p one.
-    private func divisor(forNativeWidth width: CGFloat) -> CGFloat {
+    /// How much to shrink a display this wide, ignoring any penalty — the pure
+    /// form, so the arithmetic can be checked without a capture session.
+    nonisolated static func divisor(forNativeWidth width: CGFloat, downscaleDisabled: Bool) -> CGFloat {
         guard !downscaleDisabled, width > Self.targetCaptureWidth else { return 1 }
         // Fractional on purpose: rounding to whole divisors makes the step
         // between panels uneven (a 1080p screen would keep every pixel while a
         // 1440p one is halved), which is the opposite of the intent.
         return min(4, max(1, width / Self.targetCaptureWidth))
+    }
+
+    private func divisor(forNativeWidth width: CGFloat, displayID: CGDirectDisplayID) -> CGFloat {
+        if let until = downscaleDisabledUntil[displayID] {
+            // Still paying for a refusal: capture at native resolution.
+            if Date.timeIntervalSinceReferenceDate < until {
+                return Self.divisor(forNativeWidth: width, downscaleDisabled: true)
+            }
+            // Expired: let this display try the downscale again.
+            downscaleDisabledUntil[displayID] = nil
+        }
+        return Self.divisor(forNativeWidth: width, downscaleDisabled: false)
     }
 
     var hasPermission: Bool { CGPreflightScreenCaptureAccess() }
@@ -68,8 +91,8 @@ final class ScreenCapturer {
         failures.removeAll()
         // A display change is a fresh start: whatever made us distrust the
         // downscale (a resolution switch mid-flight, most likely) no longer
-        // applies, so let it try again.
-        downscaleDisabled = false
+        // applies, so let each display try again immediately.
+        downscaleDisabledUntil.removeAll()
     }
 
     /// A screenshot of `displayID` together with the pixel scale it was taken
@@ -97,8 +120,14 @@ final class ScreenCapturer {
         // latency. Only a request: the actual scale is measured from the bitmap
         // below rather than assumed, so a display whose scale ScreenCaptureKit
         // rounds or clamps differently still maps onto the point geometry.
-        let divisor = divisor(forNativeWidth: filter.contentRect.width * CGFloat(filter.pointPixelScale))
-        let requested = max(1, CGFloat(filter.pointPixelScale) / divisor)
+        let divisor = divisor(forNativeWidth: filter.contentRect.width * CGFloat(filter.pointPixelScale), displayID: displayID)
+        // Never upsample (a display narrower than the target stays native), but
+        // otherwise take the full downscale — `divisor` is derived from the
+        // target width, so this lands at `targetCaptureWidth` on any panel wider
+        // than it. The previous `max(1, …)` clamped the divisor result back to
+        // 1.0, which silently disabled downscaling on every Retina display and
+        // made the 5K readback five times heavier than intended.
+        let requested = min(1, CGFloat(filter.pointPixelScale) / divisor)
         let configuration = SCStreamConfiguration()
         configuration.width = max(1, Int(filter.contentRect.width * requested))
         configuration.height = max(1, Int(filter.contentRect.height * requested))
@@ -119,10 +148,15 @@ final class ScreenCapturer {
             // Only "did not downscale at all" counts as a failure — the width
             // then comes back near native. A few pixels of alignment
             // difference is normal and must not trip this.
-            if !downscaleDisabled, divisor > 1,
+            if downscaleDisabledUntil[displayID] == nil, divisor > 1,
                CGFloat(image.width) > CGFloat(configuration.width) * 1.5 {
-                downscaleDisabled = true
-                invalidateFilters()
+                downscaleDisabledUntil[displayID] = Date.timeIntervalSinceReferenceDate + Self.downscaleRetryDelay
+                // Drop only this display's filter so the next tick rebuilds it at
+                // native resolution. Resetting the whole cache (via
+                // `invalidateFilters`) would also clear the downscale penalty
+                // itself and wipe the backoff timers — turning the one case that
+                // needs them into a per-frame rebuild storm.
+                filters[displayID] = nil
             }
 
             // Measure, don't trust: callers convert point rects into this
@@ -163,8 +197,18 @@ final class ScreenCapturer {
             }
 
             // Always drop our own overlay windows from the picture.
-            var excluded = content.windows.filter {
-                $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
+            //
+            // Matched on the process id first: the bundle identifier is nil when
+            // the binary is run outside a bundle (`swift build` output rather
+            // than the .app), and comparing nil to nil would then either match
+            // every window with no bundle — or, worse, none, leaving our own
+            // overlays in the shot to be blurred into the next one.
+            let selfPID = ProcessInfo.processInfo.processIdentifier
+            let selfBundle = Bundle.main.bundleIdentifier
+            var excluded = content.windows.filter { window in
+                if window.owningApplication?.processID == selfPID { return true }
+                if let selfBundle, window.owningApplication?.bundleIdentifier == selfBundle { return true }
+                return false
             }
 
             // Keep the menu bar and the Dock sharp when requested.

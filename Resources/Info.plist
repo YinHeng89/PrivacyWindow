@@ -3,9 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
+	<string>zh_CN</string>
 	<key>CFBundleExecutable</key>
 	<string>PrivacyWindow</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.privacywindow.PrivacyWindow</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -23,6 +25,10 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
+	<true/>
+	<!-- A second instance would build its own overlays and capture loop, so the
+	     whole screen would be captured and blurred twice over. -->
+	<key>LSMultipleInstancesProhibited</key>
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>

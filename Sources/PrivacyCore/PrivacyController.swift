@@ -32,6 +32,11 @@ final class PrivacyController {
     /// Serial capture loop. It is the only thing that captures, which is what
     /// keeps `ScreenCapturer`'s filter cache free of concurrent writers.
     private var captureTask: Task<Void, Never>?
+    /// Guards against two `captureOnce` passes overlapping. `stopCaptureLoop`
+    /// cancels without waiting, so a pass still inside `ScreenCapturer` when the
+    /// loop restarts would interleave with the next one — two rebuilds racing to
+    /// store their filter, and a frame excluded against the wrong window.
+    private var captureInFlight = false
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
@@ -42,6 +47,10 @@ final class PrivacyController {
     private var displayChangeTask: Task<Void, Never>?
     /// Geometry of the display arrangement the overlays were last built for.
     private var screenSignature = ""
+    /// The delayed "Screen Recording is not granted" warning, kept so that
+    /// toggling the effect off cancels it instead of leaving a modal to appear
+    /// over a session that no longer exists.
+    private var permissionWarnTask: Task<Void, Never>?
 
     private var enabled = false
     private var blurRadius: Double = 20
@@ -54,10 +63,15 @@ final class PrivacyController {
     private var pauseForFullScreenApps = true
     /// Set while the machine is asleep, locked or running a screensaver.
     private var powerPaused = false
+    /// When the pause started, so a session that never receives its resume
+    /// notification cannot stay paused indefinitely.
+    private var powerPausedAt: TimeInterval = 0
     /// Last time each display was captured, so secondary displays — which show
     /// a featureless full-screen blur — can be refreshed far less often than
     /// the one with the cutout.
     private var lastCaptureNanos: [CGDirectDisplayID: UInt64] = [:]
+    /// Which displays the focused window sat on last pass. See `captureOnce`.
+    private var lastCoveredDisplays: Set<CGDirectDisplayID> = []
     /// Notification tokens paired with the centre they came from, so they can
     /// be removed again.
     private var powerObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
@@ -95,10 +109,29 @@ final class PrivacyController {
     private static let focusLossGraceFrames = 15
     /// Frames that must pass before the desktop counts as settled.
     private static let settledThreshold = 45
+    /// Frames of stillness after which the desktop is treated as idle and
+    /// capture drops to a trickle. ~15s at 60fps.
+    private static let idleThreshold = 900
     /// Refresh period for displays that show a full-screen blur with no cutout.
-    /// Their content is unreadable by definition, so 15fps is indistinguishable
-    /// from 60fps and costs a third as much.
+    /// Their content is unreadable by definition, so ~15fps is indistinguishable
+    /// from 60fps and costs a quarter as much.
     private static let secondaryDisplayIntervalNanos: UInt64 = 66_000_000
+    /// Capture period once the desktop has been idle for `idleThreshold` frames.
+    /// Nothing has moved for a quarter of a minute, so the background is a
+    /// static blur; re-shooting it four times a second is already more than
+    /// anyone can see. This is the difference between a menu bar utility that
+    /// costs nothing and one that keeps the GPU awake all day.
+    private static let idleDelayNanos: UInt64 = 250_000_000
+    /// Smallest overlap (points) that counts as a window sitting on a display.
+    /// A sub-point sliver does not: treating it as coverage would rebuild that
+    /// display's expensive shareable-content filter every time an edge jitters
+    /// across the boundary.
+    private static let minimumCoverage: CGFloat = 2
+    /// Longest the power pause may last before a focused window is allowed to
+    /// lift it anyway. The pause exists to save power, so it must never become
+    /// a state the app cannot leave: if both the wake and the unlock
+    /// notifications were missed, this lets it recover on its own.
+    private static let maxPowerPause: TimeInterval = 10
 
     var isEnabled: Bool { enabled }
     var currentBlurRadius: Double { blurRadius }
@@ -146,6 +179,7 @@ final class PrivacyController {
         // Every display has been swallowed by its window: there is literally
         // nothing to capture, so stop waking up for it.
         if !overlays.keys.contains(where: { shouldBlur(displayID: $0) }) { return 200_000_000 }
+        if settledFrames >= Self.idleThreshold { return Self.idleDelayNanos }
         return isSettled ? 33_000_000 : 8_000_000
     }
 
@@ -179,6 +213,15 @@ final class PrivacyController {
 
         startDisplayLink()
         startCaptureLoop()
+        // If Screen Recording was never granted, the effect is silently dead.
+        // Give the user a pointer to where it lives once the TCC prompt has
+        // settled, rather than leaving the menu item looking broken.
+        permissionWarnTask?.cancel()
+        permissionWarnTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard let self, self.enabled, !capturer.hasPermission else { return }
+            self.warnNoScreenRecordingPermission()
+        }
 
         // `CVDisplayLink` silently stops ticking when the display set changes
         // or the machine wakes, which would freeze the cutout at its last
@@ -219,11 +262,15 @@ final class PrivacyController {
     /// over the 15-frame grace period.
     private func handleSpaceChange() {
         guard enabled else { return }
+        // Invalidate any in-flight capture so a result computed against the old
+        // Space cannot land on the new one — same discipline as `rebuildOverlays`.
+        generation += 1
         // Empty rather than freeze: the picture belongs to the Space we just
         // left, and showing it under a cutout cut for the new Space would put
         // the old Space's content on screen.
         for (_, overlay) in overlays { overlay.clear() }
         lastCaptureNanos.removeAll()
+        lastCoveredDisplays.removeAll()
         capturer.invalidateFilters()
         focus = nil
         framesWithoutFocus = 0
@@ -287,6 +334,7 @@ final class PrivacyController {
     private func suspendForPower() {
         guard enabled else { return }
         powerPaused = true
+        powerPausedAt = Date.timeIntervalSinceReferenceDate
         stopCaptureLoop()
     }
 
@@ -294,6 +342,24 @@ final class PrivacyController {
         guard enabled, powerPaused else { return }
         powerPaused = false
         if focus != nil { startCaptureLoop() }
+    }
+
+    /// Tells the user that nothing will blur until Screen Recording is granted.
+    /// Opened from the "effect is on but doesn't work" dead end, so it goes
+    /// straight to the right pane of System Settings.
+    private func warnNoScreenRecordingPermission() {
+        guard !capturer.hasPermission else { return }
+        let alert = NSAlert()
+        alert.messageText = "需要「屏幕录制」权限"
+        alert.informativeText = "隐私模糊通过截图来实现。请在「系统设置 › 隐私与安全性 › 屏幕录制」中打开「PrivacyWindow」，然后重新打开效果。"
+        alert.addButton(withTitle: "打开系统设置")
+        alert.addButton(withTitle: "稍后")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     private func handleDisplayChange() {
@@ -330,6 +396,18 @@ final class PrivacyController {
         }.joined(separator: "|")
     }
 
+    /// Whether the login session is currently locked (lock screen or screen
+    /// saver lock). The lock screen paints its own window, which `update(with:)`
+    /// would otherwise read as "a window came into focus" and use to lift the
+    /// power pause early — leaving the effect capturing (and blurring) the lock
+    /// screen instead of staying parked. A missed `screenIsLocked` signal is
+    /// harmless here because the matching `screenIsUnlocked` / "didStop" signal
+    /// still resumes normally on unlock.
+    private static func isScreenLocked() -> Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as NSDictionary? else { return false }
+        return (session["CGSSessionScreenIsLocked"] as? Bool) == true
+    }
+
     func disable() {
         guard enabled else { return }
         enabled = false
@@ -338,6 +416,8 @@ final class PrivacyController {
         displayLink = nil
         captureTask?.cancel()
         captureTask = nil
+        permissionWarnTask?.cancel()
+        permissionWarnTask = nil
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         screenObserver = nil
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
@@ -350,6 +430,7 @@ final class PrivacyController {
         for (_, overlay) in overlays { overlay.close() }
         overlays.removeAll()
         lastCaptureNanos.removeAll()
+        lastCoveredDisplays.removeAll()
         capturer.invalidateFilters()
         focus = nil
         settledFrames = 0
@@ -422,6 +503,17 @@ final class PrivacyController {
 
     private func update(with candidate: FocusedWindow?) {
         guard enabled else { return }
+        // A window coming into focus is itself proof the screen is awake and
+        // unlocked — the one case where a missed `screenIsUnlocked`/
+        // `screensaver.didStop` notification would otherwise leave capture
+        // paused forever. The lock screen paints its own window, though, so
+        // exclude that case: capturing the lock screen is pure waste, and the
+        // dedicated unlock signal still resumes normally. The `maxPowerPause`
+        // escape keeps a missed signal from parking the app for good.
+        if candidate != nil, powerPaused,
+           !Self.isScreenLocked() || Date.timeIntervalSinceReferenceDate - powerPausedAt > Self.maxPowerPause {
+            resumeFromPower()
+        }
         guard let candidate else {
             framesWithoutFocus += 1
             guard framesWithoutFocus >= Self.focusLossGraceFrames, focus != nil else { return }
@@ -462,12 +554,28 @@ final class PrivacyController {
     /// some windows report bounds that jitter by a fraction of a point, and
     /// treating that as movement would keep the desktop from ever counting as
     /// settled — and so never let the throttling kick in.
+    ///
+    /// `displayID` is deliberately not part of the comparison. It is derived
+    /// from which display the window overlaps most, so a window straddling two
+    /// displays can have it flip on that same sub-point jitter; counting each
+    /// flip as a change would hold `settledFrames` at zero forever.
     private static func isSameFocus(_ a: FocusedWindow, _ b: FocusedWindow) -> Bool {
-        guard a.windowID == b.windowID, a.displayID == b.displayID else { return false }
+        guard a.windowID == b.windowID else { return false }
         return abs(a.rect.origin.x - b.rect.origin.x) < 0.5 &&
                abs(a.rect.origin.y - b.rect.origin.y) < 0.5 &&
                abs(a.rect.width - b.rect.width) < 0.5 &&
                abs(a.rect.height - b.rect.height) < 0.5
+    }
+
+    /// Whether `rect` really sits on `displayID`, rather than just clipping it.
+    static func covers(_ rect: CGRect, on displayID: CGDirectDisplayID) -> Bool {
+        covers(rect, in: CGDisplayBounds(displayID))
+    }
+
+    /// The pure form, so the threshold can be checked without a display.
+    static func covers(_ rect: CGRect, in bounds: CGRect) -> Bool {
+        let part = rect.intersection(bounds)
+        return part.width >= Self.minimumCoverage && part.height >= Self.minimumCoverage
     }
 
     // MARK: - Capture
@@ -493,6 +601,10 @@ final class PrivacyController {
     /// entirely when there is no focused window (nothing to blur).
     private func captureOnce() async {
         guard enabled, let focus else { return }
+        guard !captureInFlight else { return }
+        captureInFlight = true
+        defer { captureInFlight = false }
+
         let generation = self.generation
         let snapshot = focus
         let radius = blurRadius
@@ -502,23 +614,45 @@ final class PrivacyController {
         // this pass started with, not to whatever replaced them meanwhile.
         let targets = overlays
 
+        // Which displays the window actually sits on. When that set changes —
+        // the window reaching onto a second display, or leaving one — the
+        // displays involved are holding a picture that no longer matches the
+        // cutout, so their throttling has to be dropped or the seam shows a
+        // stale strip for up to a refresh period.
+        let covered = Set(targets.keys.filter { Self.covers(snapshot.rect, on: $0) })
+        if covered != lastCoveredDisplays {
+            lastCoveredDisplays = covered
+            lastCaptureNanos.removeAll()
+        }
+
         let now = DispatchTime.now().uptimeNanoseconds
-        for (id, overlay) in targets where shouldBlur(displayID: id) {
-            let isFocused = snapshot.displayID == id
-            // A display with no cutout is one flat blur: refreshing it a third
-            // as often is invisible and saves a full capture-and-blur per tick.
+        // The display holding the window goes first: its picture is the one
+        // that has to keep up with the drag. Capturing in display order instead
+        // would put a secondary display's capture ahead of it, adding that
+        // capture's whole latency to the drag the user is watching.
+        let ordered = targets.sorted { lhs, rhs in
+            Self.covers(snapshot.rect, on: lhs.key) && !Self.covers(snapshot.rect, on: rhs.key)
+        }
+
+        for (id, overlay) in ordered where shouldBlur(displayID: id) {
+            // A display that has gone to sleep has nothing worth showing.
+            // (`CGDisplayIsAsleep` answers a C `boolean_t`, not a `Bool`.)
+            guard CGDisplayIsAsleep(id) == 0 else { continue }
+            let isFocused = covered.contains(id)
+            // A display with no cutout is one flat blur: refreshing it a
+            // quarter as often is invisible and saves a full capture-and-blur
+            // per tick.
             if !isFocused, let last = lastCaptureNanos[id],
                now - last < Self.secondaryDisplayIntervalNanos { continue }
-            // Only the display holding the window needs it excluded; keeping
-            // the other displays' filters free of it means a focus change never
-            // forces their (expensive) rebuild either.
+            // Only a display the window sits on needs it excluded; keeping the
+            // others' filters free of it means a focus change never forces their
+            // (expensive) rebuild either.
             let windowID = isFocused ? snapshot.windowID : nil
             guard let (image, scale) = await capturer.capture(
                 displayID: id,
                 focusWindowID: windowID,
                 keepChrome: keepChrome
             ) else { continue }
-            lastCaptureNanos[id] = DispatchTime.now().uptimeNanoseconds
             guard generation == self.generation, !Task.isCancelled else { return }
 
             let size = CGSize(width: image.width, height: image.height)
@@ -538,6 +672,10 @@ final class PrivacyController {
             guard generation == self.generation, !Task.isCancelled else { return }
             guard let blurred, self.focus?.windowID == snapshot.windowID else { continue }
             overlay.setPicture(blurred)
+            // Only a picture that was actually shown refreshes the throttle.
+            // Timing a discarded one would push the next refresh out by a full
+            // period for a display that is still holding the old frame.
+            lastCaptureNanos[id] = DispatchTime.now().uptimeNanoseconds
         }
     }
 
@@ -547,17 +685,22 @@ final class PrivacyController {
     /// `BlurOverlay.commit(hole:)` expects. `nil` when the focused window is not
     /// on `displayID`.
     private func localHole(for displayID: CGDirectDisplayID) -> CGRect? {
-        guard let focus, focus.displayID == displayID else { return nil }
+        guard let focus else { return nil }
         // `CGWindowList` coordinates and `CGDisplayBounds` share the same
         // top-left-origin space, so subtracting the display origin yields the
-        // overlay-local rect directly.
+        // overlay-local rect directly. Clamp to the display: a window spanning
+        // two displays only shows the part that actually sits on this one, so
+        // the cutout on the other display must not reach past its edge.
         let bounds = CGDisplayBounds(displayID)
-        return CGRect(
+        let local = CGRect(
             x: focus.rect.origin.x - bounds.origin.x,
             y: focus.rect.origin.y - bounds.origin.y,
             width: focus.rect.width,
             height: focus.rect.height
         )
+        let visible = local.intersection(CGRect(origin: .zero, size: bounds.size))
+        guard !visible.isNull else { return nil }
+        return visible
     }
 
     /// The rectangle `BlurProcessor` should paint over, in **image pixels,
@@ -575,16 +718,17 @@ final class PrivacyController {
         scale: CGFloat
     ) -> CGRect? {
         // A window on another display has no meaningful rectangle in this
-        // display's image: subtracting the wrong origin would place the patch
-        // somewhere arbitrary on the secondary screen.
-        guard snapshot.displayID == displayID || focus?.displayID == displayID else { return nil }
+        // display's image — but a window that *spans* displays does, for every
+        // display it covers. Gate on the geometry rather than on the single
+        // `displayID` the tracker reported for the window's largest overlap.
+        guard snapshot.rect.intersects(CGDisplayBounds(displayID)) else { return nil }
 
-        var captured: CGRect?
-        if snapshot.displayID == displayID {
-            captured = pixelHole(rect: snapshot.rect, displayID: displayID, imageSize: imageSize, scale: scale)
-        }
+        // Painting over is cheap and a missed patch is a visible halo, so this
+        // uses the plain geometric test rather than `covers`' minimum: even a
+        // sliver of the window on this display gets inpainted.
+        let captured = pixelHole(rect: snapshot.rect, displayID: displayID, imageSize: imageSize, scale: scale)
         var current: CGRect?
-        if let latest = focus, latest.displayID == displayID {
+        if let latest = focus, latest.rect.intersects(CGDisplayBounds(displayID)) {
             current = pixelHole(rect: latest.rect, displayID: displayID, imageSize: imageSize, scale: scale)
         }
         switch (captured, current) {
@@ -621,6 +765,7 @@ final class PrivacyController {
         for (_, overlay) in overlays { overlay.close() }
         overlays.removeAll()
         lastCaptureNanos.removeAll()
+        lastCoveredDisplays.removeAll()
         capturer.invalidateFilters()
         for screen in NSScreen.screens {
             guard let id = screen.displayID else { continue }
@@ -630,4 +775,10 @@ final class PrivacyController {
         }
         settledFrames = 0
     }
+
+    // Deliberately no `deinit`. A `deinit` cannot clean this up: it runs with
+    // the object already being destroyed, so a `[weak self]` captured in a Task
+    // spawned from it is always nil, and the task would run after the teardown
+    // anyway. `AppDelegate.applicationWillTerminate` is what actually calls
+    // `disable()`, and it covers quitting however it happens.
 }

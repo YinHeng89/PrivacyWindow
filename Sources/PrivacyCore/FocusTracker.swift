@@ -100,22 +100,46 @@ enum FocusTracker {
         let rect = CGRect(x: x, y: y, width: w, height: h)
         guard rect.width >= minimumSize.width, rect.height >= minimumSize.height else { return nil }
 
-        let center = CGPoint(x: rect.midX, y: rect.midY)
+        // Which display the window belongs to is decided by *overlap*, not by
+        // where its centre lands. A window dragged more than half off an edge
+        // has its centre outside every display, and a centre test then discards
+        // it: the scan moves on to whatever window is behind it and cuts the
+        // hole there, or — if there is none — the focus is lost entirely, which
+        // clears every overlay and leaves the whole desktop sharp. Losing the
+        // blur is the one failure direction this app must never take.
+        var bestArea: CGFloat = 0
+        var bestFrame: CGRect?
+        var bestID: CGDirectDisplayID?
+        var covering = 0
         for screen in NSScreen.screens {
             guard let cgFrame = screen.cgFrame, let id = screen.displayID else { continue }
-            guard cgFrame.contains(center) else { continue }
-            guard !isBar(rect, on: cgFrame) else { return nil }
-            return FocusedWindow(
-                windowID: CGWindowID(windowID),
-                pid: pid_t(ownerPID),
-                rect: rect,
-                displayID: id
-            )
+            let part = rect.intersection(cgFrame)
+            guard !part.isNull, !part.isEmpty else { continue }
+            covering += 1
+            let area = part.width * part.height
+            if area > bestArea {
+                bestArea = area
+                bestFrame = cgFrame
+                bestID = id
+            }
         }
-        return nil
+        guard let displayID = bestID, let display = bestFrame else { return nil }
+
+        // The bar test only means something against a single display: it looks
+        // for a strip spanning that display's full width. A window spanning two
+        // displays is by definition wider than either one, so measuring it
+        // against a single display would condemn ordinary wide windows.
+        if covering <= 1, isBar(rect, on: display) { return nil }
+
+        return FocusedWindow(
+            windowID: CGWindowID(windowID),
+            pid: pid_t(ownerPID),
+            rect: rect,
+            displayID: displayID
+        )
     }
 
-    private static func isBar(_ rect: CGRect, on display: CGRect) -> Bool {
+    static func isBar(_ rect: CGRect, on display: CGRect) -> Bool {
         rect.width >= display.width * barWidthFraction && rect.height <= display.height * barHeightFraction
     }
 }

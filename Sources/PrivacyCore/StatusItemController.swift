@@ -20,7 +20,7 @@ final class StatusItemController {
         self.privacy = privacy
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "eye.slash", accessibilityDescription: "隐私窗口")
+            button.image = Self.menuBarIcon()
             button.imagePosition = .imageLeading
         }
         buildMenu()
@@ -106,5 +106,65 @@ final class StatusItemController {
     @objc private func quit() {
         privacy.disable()
         NSApp.terminate(nil)
+    }
+
+    /// The menu bar glyph: the same eye-with-a-slash as the app icon, drawn as
+    /// a template so macOS tints it to match the menu bar and turns it white
+    /// when the item is highlighted.
+    ///
+    /// Drawn rather than taken from SF Symbols so the two icons are visibly the
+    /// same mark — the symbol face changes between macOS releases, and this one
+    /// is the identity of the app.
+    private static func menuBarIcon() -> NSImage {
+        let side: CGFloat = 18
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            let ink = NSColor.black
+            ink.set()
+
+            let eye = eyePath(size: side)
+            eye.lineWidth = 1.5
+            eye.lineCapStyle = .round
+            eye.lineJoinStyle = .round
+            eye.stroke()
+
+            NSBezierPath(ovalIn: NSRect(
+                x: side * 0.405,
+                y: side * 0.405,
+                width: side * 0.19,
+                height: side * 0.19
+            )).fill()
+
+            let slash = NSBezierPath()
+            slash.move(to: NSPoint(x: side * 0.20, y: side * 0.73))
+            slash.line(to: NSPoint(x: side * 0.80, y: side * 0.27))
+            slash.lineWidth = 1.7
+            slash.lineCapStyle = .round
+            slash.stroke()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "隐私窗口"
+        return image
+    }
+
+    /// The almond outline of the eye, in a square of the given side length.
+    /// Kept in step with the same shape in `Tools/generate-app-icon.swift`.
+    private static func eyePath(size: CGFloat) -> NSBezierPath {
+        let path = NSBezierPath()
+        let left = NSPoint(x: size * 0.16, y: size * 0.50)
+        let right = NSPoint(x: size * 0.84, y: size * 0.50)
+        path.move(to: left)
+        path.curve(
+            to: right,
+            controlPoint1: NSPoint(x: size * 0.30, y: size * 0.27),
+            controlPoint2: NSPoint(x: size * 0.70, y: size * 0.27)
+        )
+        path.curve(
+            to: left,
+            controlPoint1: NSPoint(x: size * 0.70, y: size * 0.73),
+            controlPoint2: NSPoint(x: size * 0.30, y: size * 0.73)
+        )
+        path.close()
+        return path
     }
 }
