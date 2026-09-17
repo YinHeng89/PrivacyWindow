@@ -5,11 +5,11 @@
       "name" : "PrivacyWindow",
       "path" : "/Users/yinheng/Documents/GitHub/PrivacyWindow",
       "projects" : [
-        "31feed4c4a776f014b3aaf1e9a5794a9eb94342c793274b4caa87c879b952978",
+        "7aa4ce5cc72b95c1c30a4e51b3b99699140667a6e8a4c6e5cd45bf3820e972bc",
         "60c7b0a623f6488735b8a94a0e6f326392f1de098312089fe8616e070749f666"
       ]
     },
-    "signature" : "830e917a3f54755538793b246f9dd48ee6ede7519b74f884c61e6badbb7070ae",
+    "signature" : "c2ae0c8737ad2a27743a8d248982bbea8278d99cf23a6fb4af0ac3eb4178ec36",
     "type" : "workspace"
   },
   {
@@ -217,14 +217,6 @@
               {
                 "fileType" : "sourcecode.swift",
                 "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_2",
-                "name" : "CoordinateConverter.swift",
-                "path" : "CoordinateConverter.swift",
-                "sourceTree" : "<group>",
-                "type" : "file"
-              },
-              {
-                "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_3",
                 "name" : "FocusTracker.swift",
                 "path" : "FocusTracker.swift",
                 "sourceTree" : "<group>",
@@ -232,7 +224,7 @@
               },
               {
                 "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_4",
+                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_3",
                 "name" : "PrivacyController.swift",
                 "path" : "PrivacyController.swift",
                 "sourceTree" : "<group>",
@@ -240,7 +232,7 @@
               },
               {
                 "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_5",
+                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_4",
                 "name" : "ScreenCapturer.swift",
                 "path" : "ScreenCapturer.swift",
                 "sourceTree" : "<group>",
@@ -248,7 +240,7 @@
               },
               {
                 "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_6",
+                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_5",
                 "name" : "StatusItemController.swift",
                 "path" : "StatusItemController.swift",
                 "sourceTree" : "<group>",
@@ -256,7 +248,7 @@
               },
               {
                 "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_7",
+                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_6",
                 "name" : "main.swift",
                 "path" : "main.swift",
                 "sourceTree" : "<group>",
@@ -290,14 +282,6 @@
               {
                 "fileType" : "sourcecode.swift",
                 "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_2",
-                "name" : "CoordinateConverter.swift",
-                "path" : "CoordinateConverter.swift",
-                "sourceTree" : "<group>",
-                "type" : "file"
-              },
-              {
-                "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_3",
                 "name" : "FocusTracker.swift",
                 "path" : "FocusTracker.swift",
                 "sourceTree" : "<group>",
@@ -305,7 +289,7 @@
               },
               {
                 "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_4",
+                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_3",
                 "name" : "PrivacyController.swift",
                 "path" : "PrivacyController.swift",
                 "sourceTree" : "<group>",
@@ -313,7 +297,7 @@
               },
               {
                 "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_5",
+                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_4",
                 "name" : "ScreenCapturer.swift",
                 "path" : "ScreenCapturer.swift",
                 "sourceTree" : "<group>",
@@ -321,7 +305,7 @@
               },
               {
                 "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_6",
+                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_5",
                 "name" : "StatusItemController.swift",
                 "path" : "StatusItemController.swift",
                 "sourceTree" : "<group>",
@@ -329,7 +313,7 @@
               },
               {
                 "fileType" : "sourcecode.swift",
-                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_7",
+                "guid" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_6",
                 "name" : "main.swift",
                 "path" : "main.swift",
                 "sourceTree" : "<group>",
@@ -355,12 +339,12 @@
       "projectIsPackage" : "true",
       "projectName" : "PrivacyWindow",
       "targets" : [
-        "3e7a0bb0541d6913455f07e669ab01b240e613d0550a7c04ebe1d52a53627eb5",
-        "97e0f88bafe54048ca3ed496b7d8dc53d0dd6711c73b9e9d41a9ffb679bdd2fb",
+        "d61d7eea0c9d43cd1e46b4e373c53877a25b2ab191a150f4e2629326ea262b67",
+        "4587ce8c3bc1de247e3a68929b6817f096879bdd2cbf28c92d4aa07f4287f308",
         "bf17f4341e5d2e7874574ceb45e64b7278bb280fd9335c417d3113f9ecfcaf33"
       ]
     },
-    "signature" : "31feed4c4a776f014b3aaf1e9a5794a9eb94342c793274b4caa87c879b952978",
+    "signature" : "7aa4ce5cc72b95c1c30a4e51b3b99699140667a6e8a4c6e5cd45bf3820e972bc",
     "type" : "project"
   },
   {
@@ -527,15 +511,6 @@
 
               ],
               "removeHeadersOnCopy" : "false"
-            },
-            {
-              "codeSignOnCopy" : "false",
-              "fileReference" : "PACKAGE:privacywindow::MAINGROUP::REF_2::REF_7",
-              "guid" : "PACKAGE-PRODUCT:privacywindow_PrivacyWindow.PrivacyWindow::BUILDPHASE_0::7",
-              "platformFilters" : [
-
-              ],
-              "removeHeadersOnCopy" : "false"
             }
           ],
           "guid" : "PACKAGE-PRODUCT:privacywindow_PrivacyWindow.PrivacyWindow::BUILDPHASE_0",
@@ -561,7 +536,7 @@
       "productTypeIdentifier" : "com.apple.product-type.tool",
       "type" : "standard"
     },
-    "signature" : "3e7a0bb0541d6913455f07e669ab01b240e613d0550a7c04ebe1d52a53627eb5",
+    "signature" : "d61d7eea0c9d43cd1e46b4e373c53877a25b2ab191a150f4e2629326ea262b67",
     "type" : "target"
   },
   {
@@ -759,15 +734,6 @@
 
               ],
               "removeHeadersOnCopy" : "false"
-            },
-            {
-              "codeSignOnCopy" : "false",
-              "fileReference" : "PACKAGE:privacywindow::MAINGROUP::REF_3::REF_7",
-              "guid" : "PACKAGE-TARGET:PrivacyWindow--4BF6E4178D76A09D-testable::BUILDPHASE_0::7",
-              "platformFilters" : [
-
-              ],
-              "removeHeadersOnCopy" : "false"
             }
           ],
           "guid" : "PACKAGE-TARGET:PrivacyWindow--4BF6E4178D76A09D-testable::BUILDPHASE_0",
@@ -793,7 +759,7 @@
       "productTypeIdentifier" : "org.swift.product-type.common.object",
       "type" : "standard"
     },
-    "signature" : "97e0f88bafe54048ca3ed496b7d8dc53d0dd6711c73b9e9d41a9ffb679bdd2fb",
+    "signature" : "4587ce8c3bc1de247e3a68929b6817f096879bdd2cbf28c92d4aa07f4287f308",
     "type" : "target"
   },
   {

@@ -7,6 +7,7 @@ final class StatusItemController {
 
     private var toggleItem: NSMenuItem!
     private var strengthItems: [NSMenuItem] = []
+    private var chromeItem: NSMenuItem!
 
     private let levels: [(title: String, radius: Double)] = [
         ("轻度", 10),
@@ -48,6 +49,15 @@ final class StatusItemController {
         strength.submenu = sub
         menu.addItem(strength)
 
+        chromeItem = NSMenuItem(
+            title: "菜单栏与 Dock 保持清晰",
+            action: #selector(toggleChrome),
+            keyEquivalent: ""
+        )
+        chromeItem.target = self
+        chromeItem.state = privacy.keepsChromeClear ? .on : .off
+        menu.addItem(chromeItem)
+
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -71,6 +81,11 @@ final class StatusItemController {
         for item in strengthItems {
             item.state = item === sender ? .on : .off
         }
+    }
+
+    @objc private func toggleChrome() {
+        privacy.setKeepChrome(!privacy.keepsChromeClear)
+        chromeItem.state = privacy.keepsChromeClear ? .on : .off
     }
 
     @objc private func quit() {
