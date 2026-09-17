@@ -1,0 +1,753 @@
+[
+  {
+    "isFramework" : true,
+    "moduleName" : "AVFAudio",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/AVFAudio-2KF91DOXBEIEJ.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "AVFoundation",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/AVFoundation-2EM1BHKP3LUKL.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "Accessibility",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Accessibility-R52CXBCIXZG6.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "AppKit",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/AppKit-70E20FD73QPA.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "AudioToolbox",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/AudioToolbox-37D0TUI5REGUC.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "ColorSync",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ColorSync-UK0G6VNYNEZS.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "Combine",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Combine-WPTJ6P4RBN7W.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "CoreAudio",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreAudio-3REHA8Z8WBGNQ.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "CoreData",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreData-1QIDRRPZBVG54.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "CoreFoundation",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreFoundation-2C8JWR6TGC49H.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "CoreGraphics",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreGraphics-189YDUQJK7WS.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "CoreImage",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreImage-3K62FJQD8J65I.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "CoreMIDI",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreMIDI-4EJE27NKMAXF.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "CoreMedia",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreMedia-3GTIY1DJTK8QM.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "CoreText",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreText-11HK7PBV6FP4F.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "CoreTransferable",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreTransferable-30KFWZNB2AOMG.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "CoreVideo",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreVideo-166BM0RUFL3FW.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "Darwin",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Darwin-8TLLRXJYJFPJ.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "DataDetection",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/DataDetection-1PZWTVX77SK58.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "DeveloperToolsSupport",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/DeveloperToolsSupport-3M9AGZG5JX22F.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "Dispatch",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Dispatch-1XO4WSHUPPZEG.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "Foundation",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Foundation-FX4DAKRZHPJS.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "IOKit",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/IOKit-20XWZB5VOT5BJ.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "ImageIO",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ImageIO-RXWXC8797M2J.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "MediaToolbox",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/MediaToolbox-OY4TCXB1M2UY.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "Metal",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Metal-13D8YKYO5QRKI.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "OSLog",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/OSLog-2E0QA2L7NOMMZ.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "ObjectiveC",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ObjectiveC-2U9HC7OKBRU2A.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "Observation",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Observation-2TKMSD9SFAW8M.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "QuartzCore",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/QuartzCore-179IPZH4PVEF9.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "ScreenCaptureKit",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ScreenCaptureKit-3UAUHBXM67S3X.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "Spatial",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Spatial-23HT38DWJA5JF.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "Swift",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Swift-3O1V8SNB769F5.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "SwiftUICore",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/SwiftUICore-1CCIXGWG62FMZ.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "Symbols",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Symbols-1BBZK46MT6O1H.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "Synchronization",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Synchronization-1A7QM6TT655D4.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "System",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/System-28LNJIBEI31GA.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "UniformTypeIdentifiers",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/UniformTypeIdentifiers-UWQEUXDPTVBO.swiftmodule"
+  },
+  {
+    "isFramework" : true,
+    "moduleName" : "VideoToolbox",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/VideoToolbox-2NLNR8T2FOQ.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "XPC",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/XPC-28450FSB68B6O.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "_Builtin_float",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_float-35B1IFEZLYTEK.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "_Concurrency",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Concurrency-1EP8SE0BL9VRK.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "_DarwinFoundation1",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation1-2H0CP0H4KVEZ4.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "_DarwinFoundation2",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation2-39NVU3ULQ5JR2.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "_DarwinFoundation3",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation3-1N6790JHV2TGB.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "_StringProcessing",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_StringProcessing-28AIXW45MK2U0.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "os",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/os-2DC68749DR1IH.swiftmodule"
+  },
+  {
+    "isFramework" : false,
+    "moduleName" : "simd",
+    "modulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/simd-1MNAW6CG4OF4S.swiftmodule"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/AVFAudio.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/AVFAudio-4CLYZT75BRFX0WA6RGE7T2K0O.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "AVFAudio"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/AVFoundation.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/AVFoundation-CYG5UK8F3PIDXNIXGYQWK3V3M.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "AVFoundation"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/Accessibility.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Accessibility-9Z4ZDQEN15G2317DL0MDA2T3B.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "Accessibility"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/AppKit.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/AppKit-29GW2N5BUKBGS952S9MYNN5VO.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "AppKit"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/ApplicationServices.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ApplicationServices-15SKJ9JMMUCV77JRI8V73XTV7.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "ApplicationServices"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/AudioToolbox.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/AudioToolbox-BQ43ZKMJC68DNZ5UWXUVV4RDK.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "AudioToolbox"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CFNetwork.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CFNetwork-5Q75U1KVG27SYE6P95FY3OC1D.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CFNetwork"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/cups.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CUPS-2WRU0H6VT2UUPHBUVJXH9ZKN.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CUPS"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/Carbon.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Carbon-60Y2L27HHH72Q30WQFPVWFDFD.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "Carbon"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/ColorSync.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ColorSync-2B2JKYGYV9E5BUCUTKMNC3BBU.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "ColorSync"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreAudio.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreAudio-BAATMWRC95AEGSL2ICC6TW3SU.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreAudio"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreAudioTypes.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreAudioTypes-1GZ09X454UD8SNG7U59RA0BIB.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreAudioTypes"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreData.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreData-926JTNT52HJ2F3WEFB0H77BFU.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreData"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreFoundation.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreFoundation-4FZ8YYDEBZKNMHO2TB0YFSG6W.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreFoundation"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreGraphics.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreGraphics-6O2PIBJYH17IUC12KDK86HIEF.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreGraphics"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreImage.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreImage-7HPQ8K4OZNWRQ8QE4FJM1YE05.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreImage"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreMIDI.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreMIDI-66LZU4YQ137U8U6NACTFMRUAR.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreMIDI"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreMedia.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreMedia-5QKDE73IGZ1S91OWGCAO5P1GN.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreMedia"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreServices.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreServices-IA4T2SJVTJ0JM9PVM9JYC0DA.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreServices"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreText.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreText-11CYETITML4YYHPTOMD86ECVN.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreText"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreTransferable.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreTransferable-J4L5R5M1WCRLEKVX8XWNQE3.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreTransferable"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/CoreVideo.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/CoreVideo-6UQUO871HZ4D1NQZKQU9P2BFM.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "CoreVideo"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/Darwin.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Darwin-8E5812G7ALHHXVM15XJGABLI4.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "Darwin"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/DataDetection.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/DataDetection-6XB6HP8MOMN7LHMG2XS2W0AQG.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "DataDetection"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/DeveloperToolsSupport.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/DeveloperToolsSupport-AFMXJSXB5XG97R6FQ33TODV67.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "DeveloperToolsSupport"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/DiskArbitration.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/DiskArbitration-3DPO4SLZFK2U0XOHVKPVBUKFW.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "DiskArbitration"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/dispatch.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Dispatch-1WTAXZ8C6ER9YSM4A20WYUZ07.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "Dispatch"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/Foundation.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Foundation-192STQXTJZRGD1PPS2O0IBC7Y.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "Foundation"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/IOKit.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/IOKit-6RQSUTCMW8P6C2GYNECLKOEAT.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "IOKit"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/IOSurface.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/IOSurface-6TATVXVOJKZHBC7VDBOI8PDGD.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "IOSurface"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/ImageIO.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ImageIO-3MRSIF9PCTLBVF4RJGFV24F65.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "ImageIO"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/DarwinBasic.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/MachO-8FQ9QGD717GOP8FXVR5FEBPB4.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "MachO"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/MediaToolbox.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/MediaToolbox-4NF1V9UJJFNS9UG23GAQL7CK5.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "MediaToolbox"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/Metal.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Metal-83HDZCR2ZHYN610JKS92JZWJI.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "Metal"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/OSLog.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/OSLog-5VLME241684584RGUWT6FYUZI.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "OSLog"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/ObjectiveC.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ObjectiveC-Z8IX0O9S0NG1YM3SKOUB2U17.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "ObjectiveC"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/OpenGL.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/OpenGL-8QZNZGQC960ERCCU1HJKI219T.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "OpenGL"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/QuartzCore.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/QuartzCore-21VR05OJOR8S114A6G1XWOM18.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "QuartzCore"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/ScreenCaptureKit.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ScreenCaptureKit-5PJ045D92KJ1C8HBN10ROFWCZ.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "ScreenCaptureKit"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/Security.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Security-4YFG5H23PGDZF9V7PF9P7EIA.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "Security"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/Spatial\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Spatial-77GDOE0E8VV191JCFU8BXSAOD.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "Spatial"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/lib\/swift\/shims\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/SwiftShims-EUK74XXRLWQ8RLM8JT0J516GE.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "SwiftShims"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/SwiftUICore.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/SwiftUICore-1GVQIJV7R0T04D1VIZUGMMUDS.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "SwiftUICore"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/Symbols.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/Symbols-BD39DQRYBKSI5PRT18WJGIS0V.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "Symbols"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/UniformTypeIdentifiers.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/UniformTypeIdentifiers-3NUE213O4I07WEQ081898QBJ6.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "UniformTypeIdentifiers"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/System\/Library\/Frameworks\/VideoToolbox.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/VideoToolbox-14BWERS8NLYQIUML26DGWMFJ3.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "VideoToolbox"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/xpc.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/XPC-BO6EAN9HUCOSHY917OG1WS948.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "XPC"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/DarwinFoundation1.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_AvailabilityInternal-9HYTM3HQQXG08SENJPZDYKDZV.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_AvailabilityInternal"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_float-A43HOTOWP93631RSXQHSDRFJ4.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_float"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_intrinsics-BDTOVMHBD23MMQTC27RK5T4YO.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_intrinsics"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_inttypes-CWNLAQGAQBLHFYWNZE7CVHHY.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_inttypes"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_limits-8ZERXJ21YJL552H81V062B0CO.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_limits"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdarg-A7OVVURJ9X3VQ9ZWFKSNGQ1GJ.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_stdarg"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdatomic-ANLU7K7NVFL23HN3VKYPGO7F9.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_stdatomic"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdbool-NTQSPH41HKKWP6B0L0L77ME1.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_stdbool"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stddef-4DRH2OK9PURBM6BKKYKS8FCC7.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_stddef"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdint-ERE88UR3T4YETNA4QVM4I5H57.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_stdint"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_tgmath-DFDH005ZST7UP12IHJOD6DGIE.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_Builtin_tgmath"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/DarwinFoundation1.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation1-E2Y13MUUMQ14OX41DW35EVO8E.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_DarwinFoundation1"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/DarwinFoundation2.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation2-WG82GZKJNM0EPQSYN9GK0ZCG.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_DarwinFoundation2"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/DarwinFoundation3.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation3-7UPT7QE2E2ZCU131IKN4SNG81.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_DarwinFoundation3"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/lib\/swift\/shims\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/_SwiftConcurrencyShims-62GVCMH3CMI0VAT37SRKSKAYL.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "_SwiftConcurrencyShims"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/launch.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/launch-67QE82OZB3L79U937A1UJVMHZ.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "launch"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/libDER\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/libDER-DKM86TMV5SUU19GIMMYSWAGS5.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "libDER"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/libkern.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/libkern-CWACBFBSD17M36GK8H2ILEAS6.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "libkern"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/os.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/os-8NFQ32GZKOJBQLHP2SUNZNUPO.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "os"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/os.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/os_object-2B62YZMVFHZU6NXQBPAXJBMC8.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "os_object"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/os.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/os_workgroup-163JCRQ0JMMAZRRXJ3ZAKB3PV.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "os_workgroup"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ptrauth-5X01TRV1PMO3P4FRB9CDN2JD9.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "ptrauth"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/usr\/lib\/clang\/21\/include\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/ptrcheck-4GUUXJ4U6B5LA7GLWXCDOKVXN.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "ptrcheck"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/simd\/module.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/simd-85FR2RRBYEID752ZFDQVMC6CA.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "simd"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/c_standard_library.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/string_h-9AVH35VGG1ONSZTQRF7U0IPSP.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "string_h"
+  },
+  {
+    "clangModuleMapPath" : "\/Library\/Developer\/CommandLineTools\/SDKs\/MacOSX27.0.sdk\/usr\/include\/DarwinFoundation2.modulemap",
+    "clangModulePath" : "\/Users\/yinheng\/Documents\/GitHub\/PrivacyWindow\/.build\/out\/SDKExplicitPrecompiledModules\/sys_types-6X47CB33UKS7G4TOCV827EYD2.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "sys_types"
+  }
+]

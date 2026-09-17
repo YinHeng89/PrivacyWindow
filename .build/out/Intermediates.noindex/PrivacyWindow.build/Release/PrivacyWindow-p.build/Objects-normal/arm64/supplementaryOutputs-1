@@ -1,0 +1,11 @@
+{
+  "/Users/yinheng/Documents/GitHub/PrivacyWindow/Sources/AppDelegate.swift" : {
+    "abi-baseline-json" : "/Users/yinheng/Documents/GitHub/PrivacyWindow/.build/out/Intermediates.noindex/PrivacyWindow.build/Release/PrivacyWindow-p.build/Objects-normal/arm64/PrivacyWindow.abi.json",
+    "const-values" : "/Users/yinheng/Documents/GitHub/PrivacyWindow/.build/out/Intermediates.noindex/PrivacyWindow.build/Release/PrivacyWindow-p.build/Objects-normal/arm64/PrivacyWindow-primary.swiftconstvalues",
+    "dependencies" : "/Users/yinheng/Documents/GitHub/PrivacyWindow/.build/out/Intermediates.noindex/PrivacyWindow.build/Release/PrivacyWindow-p.build/Objects-normal/arm64/PrivacyWindow-primary.d",
+    "diagnostics" : "/Users/yinheng/Documents/GitHub/PrivacyWindow/.build/out/Intermediates.noindex/PrivacyWindow.build/Release/PrivacyWindow-p.build/Objects-normal/arm64/PrivacyWindow-primary.dia",
+    "swiftdoc" : "/Users/yinheng/Documents/GitHub/PrivacyWindow/.build/out/Intermediates.noindex/PrivacyWindow.build/Release/PrivacyWindow-p.build/Objects-normal/arm64/PrivacyWindow.swiftdoc",
+    "swiftmodule" : "/Users/yinheng/Documents/GitHub/PrivacyWindow/.build/out/Intermediates.noindex/PrivacyWindow.build/Release/PrivacyWindow-p.build/Objects-normal/arm64/PrivacyWindow.swiftmodule",
+    "swiftsourceinfo" : "/Users/yinheng/Documents/GitHub/PrivacyWindow/.build/out/Intermediates.noindex/PrivacyWindow.build/Release/PrivacyWindow-p.build/Objects-normal/arm64/PrivacyWindow.swiftsourceinfo"
+  }
+}
