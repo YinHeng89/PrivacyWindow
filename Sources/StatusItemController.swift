@@ -8,6 +8,7 @@ final class StatusItemController {
     private var toggleItem: NSMenuItem!
     private var strengthItems: [NSMenuItem] = []
     private var chromeItem: NSMenuItem!
+    private var autoPauseItem: NSMenuItem!
 
     private let levels: [(title: String, radius: Double)] = [
         ("轻度", 10),
@@ -58,6 +59,15 @@ final class StatusItemController {
         chromeItem.state = privacy.keepsChromeClear ? .on : .off
         menu.addItem(chromeItem)
 
+        autoPauseItem = NSMenuItem(
+            title: "大窗口自动停用模糊（省电）",
+            action: #selector(toggleAutoPause),
+            keyEquivalent: ""
+        )
+        autoPauseItem.target = self
+        autoPauseItem.state = privacy.pausesForLargeWindows ? .on : .off
+        menu.addItem(autoPauseItem)
+
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -86,6 +96,11 @@ final class StatusItemController {
     @objc private func toggleChrome() {
         privacy.setKeepChrome(!privacy.keepsChromeClear)
         chromeItem.state = privacy.keepsChromeClear ? .on : .off
+    }
+
+    @objc private func toggleAutoPause() {
+        privacy.setAutoPauseForLargeWindow(!privacy.pausesForLargeWindows)
+        autoPauseItem.state = privacy.pausesForLargeWindows ? .on : .off
     }
 
     @objc private func quit() {

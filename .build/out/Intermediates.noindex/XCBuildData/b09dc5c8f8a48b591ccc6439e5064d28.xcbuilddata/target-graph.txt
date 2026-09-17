@@ -1,2 +1,0 @@
-Target dependency graph (1 target)
-Target 'PrivacyWindow-product' in project 'PrivacyWindow' (no dependencies)

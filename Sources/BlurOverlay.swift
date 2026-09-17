@@ -1,6 +1,5 @@
 import AppKit
 import CoreGraphics
-import CoreImage
 import QuartzCore
 
 /// A borderless window above everything. It never takes focus and never takes
@@ -12,16 +11,48 @@ final class OverlayWindow: NSWindow {
 
 /// A full-screen blurred picture of one display, with a transparent rectangular
 /// hole punched where the focused window sits.
+///
+/// Content and cutout are deliberately committed together by `commit(hole:)`
+/// from a single display-link tick. The old design updated the picture and the
+/// mask from two independent timers, so the layer tree was routinely committed
+/// half-updated: a fresh picture with a stale hole, or the other way round.
+/// That mismatch is what read as "the cutout and the background are not part of
+/// the same frame".
 @MainActor
 final class BlurOverlay {
-    let window: NSWindow
+    let window: OverlayWindow
 
     private let hostLayer = CALayer()
     private let maskLayer = CAShapeLayer()
     private let screen: NSScreen
-    private let ciContext = CIContext()
+    /// Concentric rings drawn just outside the cutout. They live *inside* the
+    /// masked layer, so the even-odd mask clips them to the blurred area —
+    /// they can never spill over the sharp window.
+    private let edgeLayers: [CAShapeLayer]
 
-    init(screen: NSScreen) {
+    /// A blurred picture waiting for the next display-link tick.
+    private var pendingPicture: CGImage?
+    private var pendingScale: CGFloat = 1
+    /// Brightness outside the cutout from the last picture, smoothed so a
+    /// momentary sample cannot flip the edge colour.
+    private var surroundLuminance: CGFloat?
+    /// Which side of the luminance threshold the edge is currently on. Kept
+    /// across frames so a mid-grey background has to clearly cross over before
+    /// the edge changes tone — otherwise it would flip every other frame.
+    private var edgeIsDark: Bool?
+    /// Whether a blurred picture is actually on screen. The edge is only drawn
+    /// on top of one; drawing it before would leave a bare rounded outline
+    /// floating over the sharp desktop during the first frames after enabling.
+    private var hasPicture = false
+    /// The hole last pushed to the mask, so an unchanged cutout costs nothing.
+    private var committedHole: CGRect?
+    private var hasCommittedHole = false
+
+    /// - Parameter animateAppearance: fades the overlay in. Only right when
+    ///   the effect is being switched on; a display change replaces the
+    ///   overlays while the effect is already visible, and fading in from
+    ///   empty would flash the sharp desktop for a quarter of a second.
+    init(screen: NSScreen, animateAppearance: Bool = true) {
         self.screen = screen
 
         let window = OverlayWindow(
@@ -35,7 +66,7 @@ final class BlurOverlay {
         window.hasShadow = false
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
-        window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+        window.level = NSWindow.Level(rawValue: Self.shieldingLevel)
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
 
         let view = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
@@ -43,14 +74,30 @@ final class BlurOverlay {
         hostLayer.frame = view.bounds
         hostLayer.contentsGravity = .resize
         hostLayer.mask = maskLayer
+        // A layer created in code defaults to a contentsScale of 1, which would
+        // rasterize the cutout's edges at half the display's resolution and
+        // leave them visibly soft against the sharp window behind them.
+        maskLayer.contentsScale = screen.backingScaleFactor
         view.layer = hostLayer
+
+        edgeLayers = (0..<Self.edgeRingCount).map { _ in CAShapeLayer() }
+        for layer in edgeLayers {
+            // Frames are per-ring and set in `updateEdge`; start empty so
+            // nothing is allocated until a ring actually needs drawing.
+            layer.frame = .zero
+            layer.contentsScale = screen.backingScaleFactor
+            layer.fillColor = nil
+            layer.lineWidth = Self.edgeRingWidth
+            hostLayer.addSublayer(layer)
+        }
 
         window.contentView = view
         window.setFrame(screen.frame, display: false)
-        window.alphaValue = 0
+        window.alphaValue = animateAppearance ? 0 : 1
         window.orderFrontRegardless()
         self.window = window
 
+        guard animateAppearance else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -63,65 +110,52 @@ final class BlurOverlay {
     /// that makes the clear hole hug standard rounded document windows.
     var cornerRadius: CGFloat = 18
 
-    /// Replaces the blurred picture (expensive, done at low rate) and, as a
-    /// convenience, re-applies the cutout. For high-rate tracking of a moving
-    /// window, use `applyMask(hole:)` alone — it does no capture.
-    /// `hole` is a top-left local rectangle (in points); `nil` or empty blurs
-    /// the whole screen. `blurRadius` is in points.
-    func update(image: CGImage, scale: CGFloat, hole: NSRect?, blurRadius: Double) {
-        let base = CIImage(cgImage: image)
-        // Blur in device pixels.
-        let r = blurRadius * scale
-
-        // Sample the *clamped* image (edge pixels repeated outward, rather than
-        // transparent) when blurring. CIGaussianBlur otherwise feathers the
-        // outermost ~r points toward transparent, leaving a clear border that
-        // revealed the sharp live desktop on a "fully blurred" screen. Clamping
-        // keeps the blur opaque right up to the bezel.
-        let source = base.clampedToExtent()
-        let filter = CIFilter(name: "CIGaussianBlur")!
-        filter.setValue(source, forKey: kCIInputImageKey)
-        filter.setValue(r, forKey: kCIInputRadiusKey)
-        guard let output = filter.outputImage else { return }
-        guard let blurred = ciContext.createCGImage(output, from: base.extent) else { return }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        hostLayer.contents = blurred
-        hostLayer.contentsScale = scale
-        hostLayer.frame = CGRect(origin: .zero, size: screen.frame.size)
-        CATransaction.commit()
-
-        applyMask(hole: hole)
+    /// Stages a freshly blurred picture. It is not shown until the next
+    /// `commit(hole:)`, which pairs it with the cutout position of that very
+    /// frame.
+    func setPicture(_ frame: BlurredFrame) {
+        pendingPicture = frame.image
+        pendingScale = frame.scale
+        // The edge colour only needs to track slow changes in the background,
+        // and a raw per-frame sample would make it flicker on busier desktops.
+        if let sample = frame.surroundLuminance {
+            surroundLuminance = surroundLuminance.map { $0 * 0.8 + sample * 0.2 } ?? sample
+        }
     }
 
-    /// Updates only the transparent cutout, without re-capturing or re-blurring.
-    /// Cheap enough to run at ~30fps so the hole tracks a dragged window with
-    /// near-zero lag, independent of the (slower) screenshot refresh.
-    /// `hole` is a top-left local rectangle (in points); `nil` blurs all.
-    func applyMask(hole: NSRect?) {
+    /// Commits the pending picture and the cutout in one transaction.
+    ///
+    /// Called once per display link — i.e. in lockstep with the compositor — so
+    /// the hole can never show a frame ahead of (or behind) the picture.
+    /// `hole` is a top-left local rectangle (in points); `nil` or empty blurs
+    /// the whole screen.
+    func commit(hole: NSRect?) {
+        let holeChanged = !hasCommittedHole || !Self.sameHole(committedHole, hole)
+        guard holeChanged || pendingPicture != nil else { return }
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let path = CGMutablePath()
-        path.addRect(CGRect(origin: .zero, size: screen.frame.size))
-        if let hole, !hole.isEmpty {
-            // `hole` arrives in top-left local coordinates (same space as the
-            // screenshot and `CGWindowList`), but `CALayer` geometry uses a
-            // bottom-left origin. Without flipping Y the hole is rendered
-            // vertically mirrored — the window moves down while the hole moves
-            // up. Flip to the layer's coordinate space.
-            let flipped = CGRect(
-                x: hole.origin.x,
-                y: screen.frame.height - hole.maxY,
-                width: hole.width,
-                height: hole.height
-            )
-            let cr = min(cornerRadius, min(flipped.width, flipped.height) / 2)
-            path.addRoundedRect(in: flipped, cornerWidth: cr, cornerHeight: cr)
+        var pictureArrived = false
+        if let picture = pendingPicture {
+            hostLayer.contents = picture
+            hostLayer.contentsScale = pendingScale
+            hostLayer.frame = CGRect(origin: .zero, size: screen.frame.size)
+            pendingPicture = nil
+            pictureArrived = true
+            hasPicture = true
         }
-        maskLayer.path = path
-        maskLayer.fillRule = .evenOdd
-        maskLayer.frame = CGRect(origin: .zero, size: screen.frame.size)
+        if holeChanged {
+            maskLayer.path = Self.maskPath(screen: screen.frame.size, hole: hole, cornerRadius: cornerRadius)
+            maskLayer.fillRule = .evenOdd
+            maskLayer.frame = CGRect(origin: .zero, size: screen.frame.size)
+            committedHole = hole
+            hasCommittedHole = true
+        }
+        // The edge follows the cutout, and its colour follows the background —
+        // so it is refreshed when either one changed.
+        if holeChanged || pictureArrived {
+            updateEdge(hole: hole)
+        }
         CATransaction.commit()
     }
 
@@ -129,11 +163,86 @@ final class BlurOverlay {
     /// screen shows through fully sharp. Used when there is no window to focus
     /// (an otherwise-empty desktop).
     func clear() {
+        pendingPicture = nil
+        committedHole = nil
+        hasCommittedHole = false
+        hasPicture = false
+        surroundLuminance = nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         hostLayer.contents = nil
         maskLayer.path = nil
+        for layer in edgeLayers { layer.path = nil }
         CATransaction.commit()
+    }
+
+    /// Draws a soft band around the cutout so the sharp window reads as a
+    /// surface sitting above the blur.
+    ///
+    /// The focused window is excluded from the screenshot, and so is its drop
+    /// shadow, so a window whose colours match what is behind it has no visible
+    /// boundary at all — a white window on a white background simply dissolves
+    /// into the blur. Real windows always cast a shadow, and restoring that
+    /// cue is what makes the edge legible.
+    ///
+    /// The band is built from a few concentric stroked rings of decreasing
+    /// opacity, which fades it outward without needing a gradient layer — and
+    /// because the rings live inside the masked layer, the even-odd mask clips
+    /// them to the outside of the hole, so nothing is ever drawn over the sharp
+    /// window itself.
+    private func updateEdge(hole: NSRect?) {
+        guard let hole, !hole.isEmpty, hasPicture else {
+            for layer in edgeLayers { layer.path = nil }
+            return
+        }
+        let flipped = Self.flipped(hole, in: screen.frame.size)
+        let visible = CGRect(origin: .zero, size: screen.frame.size)
+        let base = edgeTone() ? NSColor.black : NSColor.white
+
+        for (index, layer) in edgeLayers.enumerated() {
+            // Ring `index` covers the band `index·w … (index+1)·w` outward from
+            // the cutout, so the innermost edge sits exactly on the boundary.
+            let outset = (CGFloat(index) + 0.5) * Self.edgeRingWidth
+            let ring = flipped.insetBy(dx: -outset, dy: -outset)
+            // Keep each layer's bounds to the ring's own footprint rather than
+            // the whole screen: a full-screen shape layer per ring would cost a
+            // full-screen surface each.
+            let frame = ring.insetBy(dx: -Self.edgeRingWidth / 2, dy: -Self.edgeRingWidth / 2)
+                .intersection(visible)
+            guard frame.width > 0, frame.height > 0 else {
+                layer.path = nil
+                continue
+            }
+            let local = CGRect(
+                x: ring.origin.x - frame.origin.x,
+                y: ring.origin.y - frame.origin.y,
+                width: ring.width,
+                height: ring.height
+            )
+            let radius = min(cornerRadius + outset, min(local.width, local.height) / 2)
+            layer.frame = frame
+            layer.path = CGPath(
+                roundedRect: local,
+                cornerWidth: radius,
+                cornerHeight: radius,
+                transform: nil
+            )
+            layer.strokeColor = base.withAlphaComponent(Self.edgeRingAlphas[index]).cgColor
+        }
+    }
+
+    /// Whether the edge should be dark. Held with hysteresis so a background
+    /// sitting near the threshold cannot flip the whole edge every frame.
+    private func edgeTone() -> Bool {
+        guard let luminance = surroundLuminance else { return edgeIsDark ?? true }
+        let dark: Bool
+        if let current = edgeIsDark {
+            dark = current ? luminance >= Self.lightBelow : luminance > Self.darkAbove
+        } else {
+            dark = luminance >= 0.5
+        }
+        edgeIsDark = dark
+        return dark
     }
 
     /// Switches the overlay's window level. At the shielding level the overlay
@@ -150,6 +259,51 @@ final class BlurOverlay {
     // so the blur still covers every app window while letting system chrome
     // paint on top in the "keep clear" mode.
     private static let chromeClearLevel = 15
+
+    /// Number, thickness and opacity of the rings making up the cutout's edge.
+    /// Six thin rings on an exponential falloff over 12pt: dense enough to
+    /// read as a shadow rather than a stroked border, since a hard plateau
+    /// right at the edge is exactly what makes a ring look like an outline.
+    private static let edgeRingCount = 6
+    private static let edgeRingWidth: CGFloat = 2
+    private static let edgeRingAlphas: [CGFloat] = [0.28, 0.18, 0.115, 0.074, 0.047, 0.030]
+    /// Hysteresis band for the edge tone: switch to dark above `darkAbove`,
+    /// back to light below `lightBelow`, hold in between.
+    private static let darkAbove: CGFloat = 0.55
+    private static let lightBelow: CGFloat = 0.45
+
+    private static func sameHole(_ a: CGRect?, _ b: CGRect?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case (let lhs?, let rhs?): return lhs == rhs
+        default: return false
+        }
+    }
+
+    /// `hole` arrives in top-left local coordinates (the same space as
+    /// `CGWindowList` and the screenshot), but `CALayer` geometry uses a
+    /// bottom-left origin — without flipping Y the hole renders vertically
+    /// mirrored, moving down while the window moves up.
+    private static func flipped(_ hole: CGRect, in size: CGSize) -> CGRect {
+        CGRect(
+            x: hole.origin.x,
+            y: size.height - hole.maxY,
+            width: hole.width,
+            height: hole.height
+        )
+    }
+
+    /// An even-odd path covering the whole screen with the cutout subtracted.
+    private static func maskPath(screen: CGSize, hole: NSRect?, cornerRadius: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        path.addRect(CGRect(origin: .zero, size: screen))
+        if let hole, !hole.isEmpty {
+            let flipped = Self.flipped(hole, in: screen)
+            let cr = min(cornerRadius, min(flipped.width, flipped.height) / 2)
+            path.addRoundedRect(in: flipped, cornerWidth: cr, cornerHeight: cr)
+        }
+        return path
+    }
 
     func close() {
         window.orderOut(nil)

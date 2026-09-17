@@ -1,0 +1,5 @@
+# SwiftPM build artefacts
+.build/
+
+# App bundle produced by ./build.sh
+build/
