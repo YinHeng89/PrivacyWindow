@@ -152,23 +152,21 @@ enum BlurProcessor {
             return (image, nil)
         }
 
-        // Grow the patch well past a blur radius. The screenshot is captured
-        // one to two frames before it is shown, so the window has moved on by
-        // then; without a margin that is wide enough to cover the move, the
-        // window's pixels reappear just outside the cutout — a halo that
-        // flickers with the drag speed.
+        // Fill the cutout itself, and nothing beyond it.
         //
-        // It also has to outrun the blur itself: `CIGaussianBlur` reads the
-        // radius as roughly sigma, so its visible spread reaches about three
-        // radii out. Padding by a single radius leaves the patch's own hard edge
-        // inside that spread, which at the strongest setting showed up as a
-        // faint rectangle of flat colour floating around the cutout.
-        let pad = max(blurRadius * 2.5, 8) * scale
-        let target = hole.insetBy(dx: -pad, dy: -pad).intersection(extent)
-        guard target.width > 0, target.height > 0 else { return (image, nil) }
-
-        let patch = CIImage(color: average).cropped(to: target)
-        return (patch.composited(over: image), luminance(of: average))
+        // The fill used to be padded outwards by a blur radius, meant to cover
+        // the window's pixels after it moved between capture and display. But
+        // that padding lies *outside* the cutout — where it is plainly visible —
+        // and a flat band of average colour there is exactly the ring of grey
+        // (or white) that shows around the window. The cutout itself is masked
+        // away entirely, so filling it costs nothing visually.
+        //
+        // Nothing is lost by dropping the margin: the rectangle being filled is
+        // already the union of where the window was captured and where it is now
+        // (see `PrivacyController.inpaintingHole`), so the movement the margin
+        // was meant to cover is painted over regardless.
+        let fill = CIImage(color: average).cropped(to: hole)
+        return (fill.composited(over: image), luminance(of: average))
     }
 
     /// Perceived brightness of `color`, on the usual Rec. 709 luma weights.

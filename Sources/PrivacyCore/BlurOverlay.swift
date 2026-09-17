@@ -105,12 +105,15 @@ final class BlurOverlay {
         }
     }
 
-    /// Radius (points) of the focus-window cutout corners. macOS window corners
-    /// measure roughly 10pt since Big Sur; matching them keeps the hole hugging
-    /// the window. A radius *larger* than the window's is the bad direction —
-    /// the blur then covers the window's own rounded corners, which reads as the
-    /// corners being bitten off.
-    var cornerRadius: CGFloat = 10
+    /// Radius (points) of the focus-window cutout corners.
+    ///
+    /// macOS does not expose a window's true corner radius, so this is an
+    /// empirical value tuned by eye. It has to sit close enough to the real
+    /// corner that the hole hugs the window, and it fails in two opposite
+    /// directions: too large and the blur covers the window's own corners, which
+    /// reads as the corners being bitten off; too small and a blurred wedge is
+    /// left sitting on each of them.
+    var cornerRadius: CGFloat = 18
 
     /// Stages a freshly blurred picture. It is not shown until the next
     /// `commit(hole:)`, which pairs it with the cutout position of that very
