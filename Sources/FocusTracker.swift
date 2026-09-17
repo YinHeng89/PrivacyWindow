@@ -36,6 +36,18 @@ enum FocusTracker {
     /// tooltips); ignoring them lets a real window behind them be picked.
     private static let minimumSize = CGSize(width: 120, height: 80)
 
+    /// A window spanning most of a display's width while taking up only a
+    /// sliver of its height is a **bar**, not somewhere you are working.
+    ///
+    /// Chrome is the reason this exists: in full-screen it puts its slide-down
+    /// toolbar in a window of its own, and that window sits *in front of* the
+    /// browser window proper. Taking it for the focus cut a ~90pt strip across
+    /// the top of the screen instead of revealing the window — and, because a
+    /// strip covers almost none of the display, nothing downstream recognised
+    /// the app as full-screen either.
+    private static let barWidthFraction: CGFloat = 0.8
+    private static let barHeightFraction: CGFloat = 0.3
+
     /// Walks the on-screen window list front-to-back and returns the first
     /// ordinary window belonging to another app. `nil` only when the desktop
     /// has no qualifying window at all, in which case the screen stays sharp.
@@ -91,15 +103,19 @@ enum FocusTracker {
         let center = CGPoint(x: rect.midX, y: rect.midY)
         for screen in NSScreen.screens {
             guard let cgFrame = screen.cgFrame, let id = screen.displayID else { continue }
-            if cgFrame.contains(center) {
-                return FocusedWindow(
-                    windowID: CGWindowID(windowID),
-                    pid: pid_t(ownerPID),
-                    rect: rect,
-                    displayID: id
-                )
-            }
+            guard cgFrame.contains(center) else { continue }
+            guard !isBar(rect, on: cgFrame) else { return nil }
+            return FocusedWindow(
+                windowID: CGWindowID(windowID),
+                pid: pid_t(ownerPID),
+                rect: rect,
+                displayID: id
+            )
         }
         return nil
+    }
+
+    private static func isBar(_ rect: CGRect, on display: CGRect) -> Bool {
+        rect.width >= display.width * barWidthFraction && rect.height <= display.height * barHeightFraction
     }
 }

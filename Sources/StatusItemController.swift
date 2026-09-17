@@ -60,12 +60,12 @@ final class StatusItemController {
         menu.addItem(chromeItem)
 
         autoPauseItem = NSMenuItem(
-            title: "大窗口自动停用模糊（省电）",
+            title: "全屏时停止模糊",
             action: #selector(toggleAutoPause),
             keyEquivalent: ""
         )
         autoPauseItem.target = self
-        autoPauseItem.state = privacy.pausesForLargeWindows ? .on : .off
+        autoPauseItem.state = privacy.pausesForFullScreenApps ? .on : .off
         menu.addItem(autoPauseItem)
 
         menu.addItem(.separator())
@@ -99,8 +99,8 @@ final class StatusItemController {
     }
 
     @objc private func toggleAutoPause() {
-        privacy.setAutoPauseForLargeWindow(!privacy.pausesForLargeWindows)
-        autoPauseItem.state = privacy.pausesForLargeWindows ? .on : .off
+        privacy.setPauseForFullScreenApps(!privacy.pausesForFullScreenApps)
+        autoPauseItem.state = privacy.pausesForFullScreenApps ? .on : .off
     }
 
     @objc private func quit() {

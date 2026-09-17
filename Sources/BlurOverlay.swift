@@ -145,7 +145,11 @@ final class BlurOverlay {
             hasPicture = true
         }
         if holeChanged {
-            maskLayer.path = Self.maskPath(screen: screen.frame.size, hole: hole, cornerRadius: cornerRadius)
+            maskLayer.path = Self.maskPath(
+                screen: screen.frame.size,
+                hole: hole,
+                cornerRadius: cutoutCornerRadius(for: hole)
+            )
             maskLayer.fillRule = .evenOdd
             maskLayer.frame = CGRect(origin: .zero, size: screen.frame.size)
             committedHole = hole
@@ -167,7 +171,11 @@ final class BlurOverlay {
         committedHole = nil
         hasCommittedHole = false
         hasPicture = false
+        // Both halves of the edge's memory go together: keeping the hysteresis
+        // seed while throwing away the brightness it was derived from lets a
+        // previous desktop decide the edge tone for the next one.
         surroundLuminance = nil
+        edgeIsDark = nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         hostLayer.contents = nil
@@ -191,13 +199,27 @@ final class BlurOverlay {
     /// them to the outside of the hole, so nothing is ever drawn over the sharp
     /// window itself.
     private func updateEdge(hole: NSRect?) {
-        guard let hole, !hole.isEmpty, hasPicture else {
+        guard let hole, !hole.isEmpty, hasPicture, surroundLuminance != nil else {
+            // No honest reading of the surroundings for this frame — because
+            // there is no cutout (the focus moved to another display), no
+            // picture yet, or whatever sample we had belongs to a frame that
+            // is no longer on screen.
+            //
+            // The stale value has to be dropped rather than kept: a sample
+            // taken minutes ago, or one taken while the window was a different
+            // size, tints the edge wrongly — and if it happens to be close to
+            // the background the edge disappears entirely. Hysteresis would
+            // then hold that wrong choice until the background clearly crossed
+            // the threshold, so it would not self-correct.
+            surroundLuminance = nil
+            edgeIsDark = nil
             for layer in edgeLayers { layer.path = nil }
             return
         }
         let flipped = Self.flipped(hole, in: screen.frame.size)
         let visible = CGRect(origin: .zero, size: screen.frame.size)
         let base = edgeTone() ? NSColor.black : NSColor.white
+        let corner = cutoutCornerRadius(for: hole)
 
         for (index, layer) in edgeLayers.enumerated() {
             // Ring `index` covers the band `index·w … (index+1)·w` outward from
@@ -219,7 +241,7 @@ final class BlurOverlay {
                 width: ring.width,
                 height: ring.height
             )
-            let radius = min(cornerRadius + outset, min(local.width, local.height) / 2)
+            let radius = min(corner + outset, min(local.width, local.height) / 2)
             layer.frame = frame
             layer.path = CGPath(
                 roundedRect: local,
@@ -231,10 +253,24 @@ final class BlurOverlay {
         }
     }
 
+    /// Corner radius to cut the hole with.
+    ///
+    /// A full-screen window fills the display with **square** corners, so a
+    /// rounded cutout leaves four blurred wedges sitting on top of its corners
+    /// — very visible, and permanent once the window stops being captured.
+    private func cutoutCornerRadius(for hole: NSRect?) -> CGFloat {
+        guard let hole, !hole.isEmpty else { return cornerRadius }
+        let size = screen.frame.size
+        if hole.width >= size.width - 1, hole.height >= size.height - 1 { return 0 }
+        return cornerRadius
+    }
+
     /// Whether the edge should be dark. Held with hysteresis so a background
     /// sitting near the threshold cannot flip the whole edge every frame.
     private func edgeTone() -> Bool {
-        guard let luminance = surroundLuminance else { return edgeIsDark ?? true }
+        // Reaching here with no sample means the caller is about to be turned
+        // away anyway; never fall back on a remembered seed.
+        guard let luminance = surroundLuminance else { return true }
         let dark: Bool
         if let current = edgeIsDark {
             dark = current ? luminance >= Self.lightBelow : luminance > Self.darkAbove
@@ -264,9 +300,13 @@ final class BlurOverlay {
     /// Six thin rings on an exponential falloff over 12pt: dense enough to
     /// read as a shadow rather than a stroked border, since a hard plateau
     /// right at the edge is exactly what makes a ring look like an outline.
+    ///
+    /// Deliberately faint. The job is only to separate a window from a
+    /// similarly coloured background — anything stronger starts to look like a
+    /// drawn border around every window.
     private static let edgeRingCount = 6
     private static let edgeRingWidth: CGFloat = 2
-    private static let edgeRingAlphas: [CGFloat] = [0.28, 0.18, 0.115, 0.074, 0.047, 0.030]
+    private static let edgeRingAlphas: [CGFloat] = [0.15, 0.10, 0.067, 0.045, 0.030, 0.020]
     /// Hysteresis band for the edge tone: switch to dark above `darkAbove`,
     /// back to light below `lightBelow`, hold in between.
     private static let darkAbove: CGFloat = 0.55

@@ -34,6 +34,7 @@ final class PrivacyController {
     private var captureTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
+    private var spaceObserver: NSObjectProtocol?
     /// Debounced rebuild of the overlays after a display change. Those
     /// notifications arrive in bursts — a single resolution animation fires
     /// several — and each one used to tear down and rebuild every overlay
@@ -45,16 +46,12 @@ final class PrivacyController {
     private var enabled = false
     private var blurRadius: Double = 20
     /// When true, the menu bar and the Dock are kept sharp (excluded from the
-    /// blurred picture) instead of being blurred with everything else.
-    private var keepChrome = false
-    /// Drop the blur on a display whose focused window already covers almost
-    /// all of it — see `largeWindowCoverage`.
-    private var autoPauseForLargeWindow = true
-    /// Per display: whether it is being blurred, plus a pending reversal that
-    /// has to hold for a few frames before it is adopted. Without that
-    /// confirmation a window resized right at the threshold would flip
-    /// capturing on and off every frame.
-    private var blurDecisions: [CGDirectDisplayID: (blur: Bool, pending: Bool?, frames: Int)] = [:]
+    /// blurred picture) instead of being blurred with everything else. On by
+    /// default: they are the two things you reach for while the effect is
+    /// running, and blurring them buys no privacy.
+    private var keepChrome = true
+    /// Drop the blur on a display whose focused window is full-screen.
+    private var pauseForFullScreenApps = true
     /// Set while the machine is asleep, locked or running a screensaver.
     private var powerPaused = false
     /// Last time each display was captured, so secondary displays — which show
@@ -88,7 +85,7 @@ final class PrivacyController {
     /// arrival of a window matters, and that can afford to be a tenth of the
     /// rate.
     private var fullScanInterval: Int {
-        if focus == nil { return 10 }
+        if focus == nil { return 6 }
         return isSettled ? 4 : 3
     }
     /// Grace period before believing "there is no focusable window": a Space
@@ -98,19 +95,6 @@ final class PrivacyController {
     private static let focusLossGraceFrames = 15
     /// Frames that must pass before the desktop counts as settled.
     private static let settledThreshold = 45
-    /// How completely the focused window must cover a display before blurring
-    /// it stops being worth the power.
-    ///
-    /// All three have to hold. Area alone is not enough: a window spanning the
-    /// full width but only 87% of the height still leaves a desktop strip
-    /// several hundred points tall, which is exactly the sort of thing this app
-    /// exists to hide. Requiring the window to be nearly as wide and as tall as
-    /// the display keeps the saving aimed at maximised and full-screen windows,
-    /// where there is genuinely nothing left to see.
-    private static let largeWindowCoverage: CGFloat = 0.90
-    private static let largeWindowExtent: CGFloat = 0.92
-    /// Frames a reversal of the blur decision must hold before it is adopted.
-    private static let decisionConfirmationFrames = 8
     /// Refresh period for displays that show a full-screen blur with no cutout.
     /// Their content is unreadable by definition, so 15fps is indistinguishable
     /// from 60fps and costs a third as much.
@@ -119,70 +103,33 @@ final class PrivacyController {
     var isEnabled: Bool { enabled }
     var currentBlurRadius: Double { blurRadius }
     var keepsChromeClear: Bool { keepChrome }
-    var pausesForLargeWindows: Bool { autoPauseForLargeWindow }
+    var pausesForFullScreenApps: Bool { pauseForFullScreenApps }
 
-    /// Turns the large-window power saving on or off.
-    func setAutoPauseForLargeWindow(_ on: Bool) {
-        guard autoPauseForLargeWindow != on else { return }
-        autoPauseForLargeWindow = on
+    /// Turns the full-screen rule on or off.
+    func setPauseForFullScreenApps(_ on: Bool) {
+        guard pauseForFullScreenApps != on else { return }
+        pauseForFullScreenApps = on
         settledFrames = 0
     }
 
-    /// Whether `displayID` is worth blurring right now. It is not when the
-    /// focused window leaves too little of it to bother hiding.
+    /// Whether `displayID` is worth blurring right now.
+    ///
+    /// It is not when the focused window covers the display edge to edge. A
+    /// full-screen app leaves nothing behind it to hide, and blurring the
+    /// display anyway means capturing and blurring a screen whose entire
+    /// content is already the focused window.
+    ///
+    /// Note this is a statement about *the window*, not about a percentage: a
+    /// window that covers 90% of the display still leaves a strip of real
+    /// desktop showing, and that strip is exactly what this app exists to
+    /// hide.
     private func shouldBlur(displayID: CGDirectDisplayID) -> Bool {
-        blurDecisions[displayID]?.blur ?? true
-    }
-
-    /// Recomputes the blur decision for every display. Called once per frame
-    /// from the display link — never from the capture loop, or the confirmation
-    /// count would tick at the capture rate instead of the display rate.
-    private func refreshBlurDecisions() {
-        for id in overlays.keys {
-            let raw = wantsBlur(displayID: id)
-            var state = blurDecisions[id] ?? (blur: true, pending: nil, frames: 0)
-            if state.blur == raw {
-                state.pending = nil
-                state.frames = 0
-            } else if raw {
-                // Turning blur back on is urgent: while it is off the display
-                // is showing a frozen picture, and every extra frame of delay
-                // is a frame of stale background. Adopt it at once.
-                state.blur = true
-                state.pending = nil
-                state.frames = 0
-            } else if state.pending == raw {
-                // Turning blur off is the direction that saves power, so it is
-                // worth insisting on a few confirming frames: a window resized
-                // right at the threshold would otherwise flip capturing on and
-                // off every frame.
-                state.frames += 1
-                if state.frames >= Self.decisionConfirmationFrames {
-                    state.blur = false
-                    state.pending = nil
-                    state.frames = 0
-                }
-            } else {
-                state.pending = raw
-                state.frames = 1
-            }
-            blurDecisions[id] = state
-        }
-    }
-
-    private func wantsBlur(displayID: CGDirectDisplayID) -> Bool {
-        // No display check on the focus: a window spanning two displays can
-        // cover the second one just as completely as the first, and
-        // `intersection` below already rules out windows that are not on it.
-        guard autoPauseForLargeWindow, let focus else { return true }
+        guard pauseForFullScreenApps, let focus else { return true }
         let bounds = CGDisplayBounds(displayID)
         guard bounds.width > 0, bounds.height > 0 else { return true }
         let visible = focus.rect.intersection(bounds)
         guard !visible.isNull else { return true }
-        let coverage = (visible.width * visible.height) / (bounds.width * bounds.height)
-        return coverage < Self.largeWindowCoverage ||
-               visible.width / bounds.width < Self.largeWindowExtent ||
-               visible.height / bounds.height < Self.largeWindowExtent
+        return visible.width < bounds.width - 1 || visible.height < bounds.height - 1
     }
 
     /// True once the focus has held still long enough that we can stop paying
@@ -251,6 +198,41 @@ final class PrivacyController {
             MainActor.assumeIsolated { self?.handleDisplayChange() }
         }
         startPowerObservers()
+
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleSpaceChange() }
+        }
+    }
+
+    /// A Space switch — which is what entering or leaving full-screen is —
+    /// invalidates everything the overlays are showing at once.
+    ///
+    /// The overlays are `.canJoinAllSpaces`, so they follow you into the new
+    /// Space carrying the old Space's picture and cutout. Without this, a
+    /// full-screen app can come up underneath a blur cut for a window that is
+    /// no longer there. Dropping the focus as well means the cutout is rebuilt
+    /// from whichever window the new Space actually has rather than fading out
+    /// over the 15-frame grace period.
+    private func handleSpaceChange() {
+        guard enabled else { return }
+        // Empty rather than freeze: the picture belongs to the Space we just
+        // left, and showing it under a cutout cut for the new Space would put
+        // the old Space's content on screen.
+        for (_, overlay) in overlays { overlay.clear() }
+        lastCaptureNanos.removeAll()
+        capturer.invalidateFilters()
+        focus = nil
+        framesWithoutFocus = 0
+        settledFrames = 0
+        stopCaptureLoop()
+        // The display link is tied to the display set; a Space switch is as
+        // good a moment as any to make sure it is still ticking.
+        restartDisplayLink()
+        refreshFocus()
     }
 
     /// Watches for the states where capturing is pure waste: the machine is
@@ -360,12 +342,13 @@ final class PrivacyController {
         screenObserver = nil
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         wakeObserver = nil
+        if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
+        spaceObserver = nil
         displayChangeTask?.cancel()
         displayChangeTask = nil
         screenSignature = ""
         for (_, overlay) in overlays { overlay.close() }
         overlays.removeAll()
-        blurDecisions.removeAll()
         lastCaptureNanos.removeAll()
         capturer.invalidateFilters()
         focus = nil
@@ -406,12 +389,11 @@ final class PrivacyController {
         // With no focus the overlays are already blank and the capture loop is
         // stopped; there is nothing to update until a window comes back.
         guard focus != nil else { return }
-        refreshBlurDecisions()
         for (id, overlay) in overlays {
             // A display the window has swallowed stops being *captured*, but
-            // keeps the blur it already has: clearing it would flash the bare
-            // desktop the moment the window shrank again, which is the one
-            // thing this app must never do.
+            // keeps the blur it is already showing. Emptying it instead would
+            // flash the bare desktop — real, readable pixels — for the few
+            // frames it takes to start capturing again.
             overlay.commit(hole: localHole(for: id))
         }
     }
@@ -449,7 +431,6 @@ final class PrivacyController {
             // here: otherwise a display paused by a maximised window stays
             // paused when the next window appears, and the screen would sit
             // sharp for the whole confirmation delay.
-            blurDecisions.removeAll()
             for (_, overlay) in overlays { overlay.clear() }
             // Nothing to blur means nothing to capture. An empty desktop, a
             // locked screen and a running screensaver all land here, and all
@@ -459,6 +440,10 @@ final class PrivacyController {
             return
         }
         framesWithoutFocus = 0
+        // Checked before the early return below: capturing is stopped whenever
+        // nothing is focused, and "the focus is unchanged" must not leave the
+        // loop dead after a Space switch or a power pause.
+        if captureTask == nil { startCaptureLoop() }
         if let old = focus, Self.isSameFocus(old, candidate) {
             settledFrames += 1
             return
@@ -471,7 +456,6 @@ final class PrivacyController {
         }
         focus = candidate
         settledFrames = 0
-        if captureTask == nil { startCaptureLoop() }
     }
 
     /// Whether the focus is unchanged. Compared with a sub-point tolerance:
@@ -636,7 +620,6 @@ final class PrivacyController {
         generation += 1
         for (_, overlay) in overlays { overlay.close() }
         overlays.removeAll()
-        blurDecisions.removeAll()
         lastCaptureNanos.removeAll()
         capturer.invalidateFilters()
         for screen in NSScreen.screens {
