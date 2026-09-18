@@ -10,10 +10,19 @@ final class StatusItemController {
     private var chromeItem: NSMenuItem!
     private var autoPauseItem: NSMenuItem!
 
+    /// Blur strength as a percentage of the maximum the app ships. The engine
+    /// works in a Gaussian blur *radius* (points), so each step uses
+    /// `radius = percent * 0.5`. That keeps the three familiar strengths exactly
+    /// where they were — 轻度/中度/强度 are now 20 % / 40 % / 80 % — and slots
+    /// four extra steps in between, so the whole 20 %–80 % band is reachable.
     private let levels: [(title: String, radius: Double)] = [
-        ("轻度", 10),
-        ("中度", 20),
-        ("强度", 40),
+        ("20%", 10),
+        ("30%", 15),
+        ("40%", 20),
+        ("50%", 25),
+        ("60%", 30),
+        ("70%", 35),
+        ("80%", 40),
     ]
 
     init(privacy: PrivacyController) {
@@ -76,12 +85,21 @@ final class StatusItemController {
         statusItem.menu = menu
     }
 
-    @objc private func toggle() {
+    /// Records whether the global shortcut could actually be registered, and
+    /// reflects it in the toggle item's tooltip. Carbon refuses the hotkey when
+    /// another app already owns it, and a tooltip promising a shortcut that does
+    /// nothing is worse than no tooltip at all.
+    func setHotKeyRegistered(_ registered: Bool) {
+        toggleItem.toolTip = registered ? "全局快捷键 ⌃⌥⌘B" : "全局快捷键 ⌃⌥⌘B 已被其他 App 占用"
+    }
+
+    @objc func toggle() {
         if privacy.isEnabled {
             privacy.disable()
         } else {
             privacy.enable()
         }
+        privacy.persistEnabled()
         toggleItem.title = privacy.isEnabled ? "停用隐私模糊" : "启用隐私模糊"
     }
 

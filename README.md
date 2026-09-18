@@ -11,6 +11,7 @@
 - 用一个置顶、透明、不接收鼠标事件的 `NSWindow` 覆盖整屏显示模糊图。
 - 用 `CGWindowListCopyWindowInfo` 找到当前最前应用的最上层窗口，在覆盖层上以 **even-odd 路径挖一个透明矩形洞**，让真实的焦点窗口透出来。
 - 挑窗口时会跳过「全宽但极扁」的条状窗口：Chrome 全屏时会把下滑工具栏放在一个独立窗口里，而它排在浏览器窗口之前；把它当成焦点，挖出来的洞就是屏幕顶部的一条横杠。
+- 挑窗口时**优先只看当前最前 app 自己的窗口**，并放行 layer 0–3：Quick Look 预览、模态表单、浮动面板都属于「用户正在看的东西」，不该被糊掉。只有最前 app 一个可用窗口都没有（回到了桌面、或焦点在菜单栏 app 上）时才退回全屏扫描，且那条退路上只认普通窗口（layer 0），免得后台 app 的置顶 HUD、桌面宠物、歌词条把自己变成焦点。
 - 焦点窗口（连同它的投影）不参与截图，所以它在模糊背景上没有任何边界。因此在洞外画了一圈很淡的**窗沿阴影**（6 层递减描边，共 12pt），并按洞周围背景的明暗自动选黑或白 —— 纯白窗口压在白色背景上也能看清轮廓。阴影画在遮罩层内部，会被挖洞路径裁掉，绝不会盖到窗口上。
 - 洞的位置由 **`CVDisplayLink`（与屏幕刷新同步）** 每帧读取，并和模糊图在同一个 `CATransaction` 里提交 —— 两者永远属于同一帧，不会错位。
 - 焦点切到别的屏时，洞跟着切到对应屏幕。
@@ -31,23 +32,35 @@ swift test            # 需要完整 Xcode —— 命令行工具里没有 XCTes
 
 代码分为两个 target：`PrivacyCore`（应用逻辑，可被测试导入）与 `PrivacyWindow`（仅入口）。可执行 target 无法被测试模块导入，这是拆开的唯一原因。
 
-首次点击菜单栏「启用隐私模糊」时，macOS 会弹出 **屏幕录制** 权限请求，允许后才会生效（重新编译后可能需再次授权）。
+首次点击菜单栏「启用隐私模糊」时，macOS 会弹出 **屏幕录制** 权限请求，允许后才会生效。
+
+签名身份用 `SIGN_IDENTITY` 指定；也可以把它写进仓库根目录的 `.sign-identity`（已加入 `.gitignore`），`build.sh` 会自动读取：
+
+```bash
+echo 'Developer ID Application: Your Name (TEAMID)' > .sign-identity
+./build.sh --run
+```
+
+不指定时退回 ad-hoc 签名（`-`），此时每次重新编译都会换一套签名，而 macOS 是按签名记 **屏幕录制** 权限的 —— 所以权限会被反复重新索要，旧的授权还得手动删掉。换成 Developer ID 后 Team ID 固定，授权就能一直生效。
 
 ## 使用
 
 菜单栏图标（自定义的「眼睛带斜杠」模板图标；app 图标则是另一幅「窗口浮在模糊桌面上」的图稿）点开后：
 
-- **启用 / 停用隐私模糊**：开关效果。
-- **模糊强度**：轻度 / 中度 / 强度（对应模糊半径 10 / 20 / 40 pt）。
+- **启用 / 停用隐私模糊**：开关效果。鼠标悬停可见快捷键提示；**⌃⌥⌘B** 在任何 app 前台时都能全局切换（Carbon 热键，不需要辅助功能权限，也不会把本 app 变成前台）。
+- **模糊强度**：七档，20%–80%，对应模糊半径 10 / 15 / 20 / 25 / 30 / 35 / 40 pt。原来的轻度 / 中度 / 强度正好落在 20% / 40% / 80%。
 - **菜单栏与 Dock 保持清晰**：默认开启。开启时覆盖层降到系统 UI 之下，菜单栏和 Dock 不被模糊、始终可用；关闭后它们会和其余背景一起被模糊。
 - **全屏时停止模糊**：默认开启。焦点窗口铺满整块屏幕时（全屏 App），屏幕上已经没有需要隐藏的东西，于是停止模糊也不再截图。
 - **退出**。
+
+所有选项（开关状态、模糊强度、菜单栏与 Dock、全屏时停止模糊）都会记在 `UserDefaults` 里，退出后下次启动自动恢复；上次退出时效果是开的，这次启动就直接是开的。
 
 ## 说明 / 已知取舍
 
 - 开启「菜单栏与 Dock 保持清晰」（默认）时，覆盖层会降到系统 UI 之下，因此**层级高于菜单栏的界面不会被模糊**：状态栏下拉菜单、弹出菜单、输入法候选栏、通知横幅、Spotlight、Dock 上的拖拽影像等。这是「保证系统 UI 可用」的必然代价；关掉该选项可让覆盖层回到最高层，把它们一并糊上。
 - 模糊是**视觉层面**的：覆盖层不拦截鼠标，因此模糊区域背后的窗口其实仍可点击（和 HazeOver 一致）。如果你需要「背景完全不可交互」，需要让覆盖层接收事件，但这会同时挡住焦点窗口的点击——本版本选择保持焦点窗口可交互。
 - 多显示器：每张屏幕各有一层覆盖；焦点窗口在哪张屏，洞就挖在哪张屏，其余屏整体模糊。
+- 全局快捷键目前固定为 ⌃⌥⌘B，不可自定义。若该组合已被别的 app 占用，Carbon 会拒绝注册，菜单项提示会写明「已被其他 App 占用」——效果本身不受影响，只是这一条捷径没了。
 - 截图会降采样到约 1600px 宽再放大显示：按屏幕宽度缩放，5K/6K 屏最多降到原像素的 1/4，1080p 屏则保持原样。模糊本来就会抹掉高频细节，肉眼看不出差别，但像素量（以及模糊开销、GPU→CPU 回读）显著下降，省下的延迟都用在了「跟手」上。
 - 桌面静止约 0.75s 后，截图与窗口查询都会自动降频以省电；一旦焦点或窗口位置有变化立刻恢复全速。
 
@@ -74,13 +87,18 @@ swift test            # 需要完整 Xcode —— 命令行工具里没有 XCTes
 
 ```
 Sources/
-  main.swift                  // 入口，启动 NSApplication
-  AppDelegate.swift           // 应用代理，挂菜单栏控制器
-  StatusItemController.swift  // 菜单栏图标与菜单
-  PrivacyController.swift     // 总控：多屏覆盖 + 截图循环 + 焦点洞
-  DisplayLink.swift           // CVDisplayLink 封装：与屏幕刷新同步的心跳
-  FocusTracker.swift          // 找焦点窗口（CGWindowList），含单窗口快速查询
-  ScreenCapturer.swift        // 单屏截图（ScreenCaptureKit，排除自身与焦点窗口）
-  BlurProcessor.swift         // 洞内补色 + 高斯模糊（Core Image）
-  BlurOverlay.swift           // 单屏模糊覆盖窗口 + 透明挖洞
+  PrivacyWindow/
+    main.swift                  // 入口，启动 NSApplication
+  PrivacyCore/
+    AppDelegate.swift           // 应用代理：挂菜单栏控制器与全局热键
+    StatusItemController.swift  // 菜单栏图标与菜单
+    HotKeyController.swift      // 全局热键 ⌃⌥⌘B（Carbon RegisterEventHotKey）
+    PrivacyController.swift     // 总控：多屏覆盖 + 截图循环 + 焦点洞 + 设置持久化
+    DisplayLink.swift           // CVDisplayLink 封装：与屏幕刷新同步的心跳
+    FocusTracker.swift          // 找焦点窗口（CGWindowList），含单窗口快速查询
+    ScreenCapturer.swift        // 单屏截图（ScreenCaptureKit，排除自身与焦点窗口）
+    BlurProcessor.swift         // 洞内补色 + 高斯模糊（Core Image）
+    BlurOverlay.swift           // 单屏模糊覆盖窗口 + 透明挖洞
+Tests/
+  PrivacyCoreTests/             // 纯几何与策略逻辑的单元测试
 ```

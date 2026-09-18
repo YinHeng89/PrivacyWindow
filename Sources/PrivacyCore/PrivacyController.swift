@@ -138,10 +138,52 @@ final class PrivacyController {
     var keepsChromeClear: Bool { keepChrome }
     var pausesForFullScreenApps: Bool { pauseForFullScreenApps }
 
+    // MARK: - Persistence
+    /// Settings are remembered across launches via `UserDefaults`, so the chosen
+    /// blur strength, chrome handling, full-screen pause and the on/off state
+    /// itself survive a quit.
+    private enum SettingsKey {
+        static let blurRadius = "blurRadius"
+        static let keepChrome = "keepChrome"
+        static let pauseFullScreen = "pauseFullScreen"
+        static let enabled = "enabled"
+    }
+
+    /// Loads any previously saved settings. Called once at launch, before the
+    /// status-bar menu is built, so the menu reflects the last choices. If the
+    /// effect was on when the app last ran it is resumed here.
+    func restoreSettings() {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: SettingsKey.blurRadius) != nil {
+            blurRadius = min(max(defaults.double(forKey: SettingsKey.blurRadius), 10), 40)
+        }
+        if defaults.object(forKey: SettingsKey.keepChrome) != nil {
+            keepChrome = defaults.bool(forKey: SettingsKey.keepChrome)
+        }
+        if defaults.object(forKey: SettingsKey.pauseFullScreen) != nil {
+            pauseForFullScreenApps = defaults.bool(forKey: SettingsKey.pauseFullScreen)
+        }
+        // Auto-resume the effect if it was on at quit. The on/off flag is
+        // persisted from the menu toggle only, never from the quit/terminate
+        // teardown, so quitting while blurred keeps it blurred next launch
+        // instead of being reset to off by `disable()`.
+        if defaults.bool(forKey: SettingsKey.enabled) {
+            enable()
+        }
+    }
+
+    /// Records the current on/off state so it survives a quit. Called from the
+    /// menu toggle — not from the teardown at quit, which must not overwrite a
+    /// "was on" value.
+    func persistEnabled() {
+        UserDefaults.standard.set(enabled, forKey: SettingsKey.enabled)
+    }
+
     /// Turns the full-screen rule on or off.
     func setPauseForFullScreenApps(_ on: Bool) {
         guard pauseForFullScreenApps != on else { return }
         pauseForFullScreenApps = on
+        UserDefaults.standard.set(on, forKey: SettingsKey.pauseFullScreen)
         settledFrames = 0
     }
 
@@ -190,6 +232,7 @@ final class PrivacyController {
     func setKeepChrome(_ on: Bool) {
         guard keepChrome != on else { return }
         keepChrome = on
+        UserDefaults.standard.set(on, forKey: SettingsKey.keepChrome)
         for (_, overlay) in overlays { overlay.setChromeClear(on) }
         capturer.invalidateFilters()
         settledFrames = 0
@@ -198,6 +241,7 @@ final class PrivacyController {
     func setBlurRadius(_ radius: Double) {
         guard blurRadius != radius else { return }
         blurRadius = radius
+        UserDefaults.standard.set(radius, forKey: SettingsKey.blurRadius)
         // Wakes the capture loop: a settled loop would otherwise take up to
         // 33ms to pick up the new radius.
         settledFrames = 0

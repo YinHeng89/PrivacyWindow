@@ -36,6 +36,15 @@ enum FocusTracker {
     /// tooltips); ignoring them lets a real window behind them be picked.
     private static let minimumSize = CGSize(width: 120, height: 80)
 
+    /// Highest window layer a focus candidate may sit on. Covers ordinary
+    /// windows (layer 0) and floating panels such as Quick Look (3) — the
+    /// things the user is actually looking at — but stops well below the Dock
+    /// (20) and the menu bar (24), which must never become the blurred-out
+    /// "focus". Admitting layer 3 also lets a *background* app's always-on-top
+    /// HUD in if one is parked in front; `focusedWindow()` counters that with a
+    /// two-pass scan that prefers the frontmost app's own windows (see below).
+    private static let focusableLayerMaximum = 3
+
     /// A window spanning most of a display's width while taking up only a
     /// sliver of its height is a **bar**, not somewhere you are working.
     ///
@@ -51,13 +60,40 @@ enum FocusTracker {
     /// Walks the on-screen window list front-to-back and returns the first
     /// ordinary window belonging to another app. `nil` only when the desktop
     /// has no qualifying window at all, in which case the screen stays sharp.
+    ///
+    /// Done in two passes so a background app's always-on-top panel (a floating
+    /// HUD parked at layer ≤ `focusableLayerMaximum`) cannot hijack the focus
+    /// forever: pass 1 only considers windows owned by the frontmost
+    /// application, pass 2 falls back to the full front-to-back scan when that
+    /// app has no eligible window of its own (desktop, a menu-bar app, …).
     static func focusedWindow() -> FocusedWindow? {
         let selfPID = ProcessInfo.processInfo.processIdentifier
         let options = CGWindowListOption([.excludeDesktopElements, .optionOnScreenOnly])
         guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+
+        // Pass 1 — the frontmost app only. This is what stops a stray HUD from a
+        // background app (which may sit visually in front of everything) from
+        // being reported as the focus. Quick Look stays covered because the
+        // preview panel belongs to the frontmost app itself.
+        if let frontmostPID, frontmostPID != selfPID {
+            for info in list {
+                if let focus = decode(info, selfPID: selfPID), focus.pid == frontmostPID {
+                    return focus
+                }
+            }
+        }
+        // Pass 2 — full front-to-back scan restricted to *ordinary* (layer 0)
+        // windows, used when the active app has no eligible window of its own.
+        // Floating overlays such as a desktop pet, a lyrics HUD or any other
+        // always-on-top panel ride on a higher layer and belong to a background
+        // app; they must never become the cutout here, so only layer-0 windows
+        // are considered. If literally nothing ordinary is on screen the focus
+        // is left nil and the desktop stays sharp — the safe direction.
         for info in list {
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
             if let focus = decode(info, selfPID: selfPID) { return focus }
         }
         return nil
@@ -85,9 +121,14 @@ enum FocusTracker {
     private static func decode(_ info: [String: Any], selfPID: pid_t) -> FocusedWindow? {
         guard let ownerPID = info[kCGWindowOwnerPID as String] as? Int, ownerPID != selfPID else { return nil }
         guard let windowID = info[kCGWindowNumber as String] as? Int else { return nil }
-        // Layer 0 = ordinary windows. Anything above belongs to menus,
-        // tooltips, overlays, and must never become the focus.
-        guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { return nil }
+        // Layer 0 = ordinary windows. Quick Look previews, modal sheets and
+        // floating palettes ride on higher layers yet are exactly what the user
+        // is reading, so they too must be allowed to take the focus — otherwise
+        // the blur cutout stays on the Finder window *behind* a Quick Look panel
+        // and the preview itself gets blurred. The band stops under the Dock (20)
+        // and the menu bar (24), which may never become the focus.
+        guard let layer = info[kCGWindowLayer as String] as? Int,
+              (0...Self.focusableLayerMaximum).contains(layer) else { return nil }
         // The full list is queried with `optionOnScreenOnly`, but a
         // single-window lookup is not — and a minimized window keeps reporting
         // bounds near the Dock, which would drag the cutout there.

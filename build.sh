@@ -12,7 +12,27 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+SIGN_IDENTITY="${SIGN_IDENTITY:-}"
+# A local `.sign-identity` file (git-ignored) holds the cert name so it does
+# not have to be exported for every build.
+if [[ -z "$SIGN_IDENTITY" && -f .sign-identity ]]; then
+  SIGN_IDENTITY="$(cat .sign-identity)"
+fi
+if [[ -z "$SIGN_IDENTITY" ]]; then
+  SIGN_IDENTITY="-"
+fi
+
+# Ad-hoc signing (-) has no stable identity, so macOS keys the Screen Recording
+# permission to a code signature that changes on every build — that is why the
+# "Screen Recording" prompt comes back after each rebuild and the old grant has
+# to be deleted first. A Developer ID certificate gives a stable Team ID and the
+# permission sticks. Set SIGN_IDENTITY (or .sign-identity) to e.g.
+#   "Developer ID Application: Your Name (TEAMID)"
+if [[ "$SIGN_IDENTITY" == - ]]; then
+  echo "⚠️  Ad-hoc signing: macOS will re-ask for Screen Recording after every build." >&2
+  echo "   Sign with a Developer ID to make the permission stick — set SIGN_IDENTITY" >&2
+  echo "   to your 'Developer ID Application: …' certificate (or write it to .sign-identity)." >&2
+fi
 APP_NAME="PrivacyWindow"
 BUNDLE="build/${APP_NAME}.app"
 
