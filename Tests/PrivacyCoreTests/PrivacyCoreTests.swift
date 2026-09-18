@@ -111,6 +111,37 @@ final class FocusRuleTests: XCTestCase {
     func testNarrowShortWindowIsNotABar() {
         XCTAssertFalse(FocusTracker.isBar(CGRect(x: 0, y: 0, width: 1200, height: 90), on: display))
     }
+
+    /// An ordinary window counts whoever owns it.
+    func testNormalLayerIsAlwaysEligible() {
+        XCTAssertTrue(FocusTracker.isEligibleLayer(0, fromFrontmostApp: true))
+        XCTAssertTrue(FocusTracker.isEligibleLayer(0, fromFrontmostApp: false))
+    }
+
+    /// The regression this guards: connecting to an SMB server puts a floating
+    /// "正在连接" strip on screen and then raises a modal panel in front of it.
+    /// System dialogs must win from any app — a ceiling of 3 refused them, so
+    /// the cutout stayed parked on the little strip.
+    func testModalPanelBeatsTheStripInFrontOfIt() {
+        XCTAssertTrue(FocusTracker.isEligibleLayer(8, fromFrontmostApp: false))
+        XCTAssertTrue(FocusTracker.isEligibleLayer(8, fromFrontmostApp: true))
+        XCTAssertTrue(FocusTracker.isEligibleLayer(19, fromFrontmostApp: false))
+    }
+
+    /// Floating panels — Quick Look, palettes — count for the frontmost app, but
+    /// a background app's pet or lyrics HUD parked in the same band does not.
+    func testDecorationBandOnlyCountsForTheFrontmostApp() {
+        XCTAssertTrue(FocusTracker.isEligibleLayer(3, fromFrontmostApp: true))
+        XCTAssertFalse(FocusTracker.isEligibleLayer(3, fromFrontmostApp: false))
+    }
+
+    /// Chrome never becomes the focus: Dock (20), menu bar (24), status windows
+    /// (25), pop-up menus (101), and anything below the normal level.
+    func testChromeIsNeverEligible() {
+        for layer in [20, 24, 25, 101, 1000, -1] {
+            XCTAssertFalse(FocusTracker.isEligibleLayer(layer, fromFrontmostApp: true), "layer \(layer)")
+        }
+    }
 }
 
 @MainActor
