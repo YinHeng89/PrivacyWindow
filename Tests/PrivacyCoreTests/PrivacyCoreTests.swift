@@ -399,6 +399,65 @@ final class RevealTests: XCTestCase {
         XCTAssertTrue(blurred(CGPoint(x: 500, y: 800), reveal: reveal), "everything else")
     }
 
+    /// Our own window in front takes the cutout away from the focused window.
+    ///
+    /// Regression: the focus pick cannot choose our own windows, so opening
+    /// Settings over another app's window left *both* sharp — the focused one
+    /// because the scan fell through to it, ours because our own windows are
+    /// always cut out. The window holding the keyboard is the one being used, so
+    /// it is the one that stays sharp.
+    func testOurOwnWindowInFrontDropsTheFocusedWindowsHole() {
+        let reveal = PrivacyController.reveal(
+            focusHole: CGRect(x: 200, y: 150, width: 400, height: 300),
+            cursorHole: nil,
+            ownWindows: [CGRect(x: 300, y: 200, width: 600, height: 400)],
+            excluded: [],
+            ownWindowHasKeyboard: true
+        )
+        XCTAssertFalse(blurred(CGPoint(x: 500, y: 350), reveal: reveal), "Settings stays sharp")
+        XCTAssertTrue(blurred(CGPoint(x: 250, y: 180), reveal: reveal), "the focused window is blurred")
+        XCTAssertTrue(blurred(CGPoint(x: 850, y: 700), reveal: reveal), "everything else stays blurred")
+    }
+
+    /// Handing the keyboard back restores it — and an excluded app's window
+    /// stays sharp either way, which is what excluding it promised.
+    func testFocusHoleReturnsWhenOurWindowLosesTheKeyboard() {
+        let hole = CGRect(x: 200, y: 150, width: 400, height: 300)
+        let ours = [CGRect(x: 300, y: 200, width: 600, height: 400)]
+        let excluded = [CGRect(x: 700, y: 400, width: 400, height: 300)]
+        let back = PrivacyController.reveal(
+            focusHole: hole, cursorHole: nil, ownWindows: ours, excluded: excluded,
+            ownWindowHasKeyboard: false
+        )
+        XCTAssertEqual(back.window, hole)
+        XCTAssertFalse(blurred(CGPoint(x: 900, y: 550), reveal: back), "excluded, while someone else has focus")
+
+        let ours2 = PrivacyController.reveal(
+            focusHole: hole, cursorHole: nil, ownWindows: ours, excluded: excluded,
+            ownWindowHasKeyboard: true
+        )
+        XCTAssertNil(ours2.window)
+        XCTAssertFalse(blurred(CGPoint(x: 900, y: 550), reveal: ours2), "excluded, while Settings has focus")
+    }
+
+    /// Our own windows — and the excluded apps' windows — are cut out with the
+    /// *same* radius as the focused one.
+    ///
+    /// Regression: they carried a hardcoded radius of their own (12), so
+    /// `cornerRadius` never applied to them. Raising it to match the system's
+    /// windows then left every window of ours — Settings in particular — with
+    /// four blurred wedges sitting on its corners.
+    func testOwnAndExcludedWindowsShareTheFocusedWindowsRadius() {
+        let rect = CGRect(x: 100, y: 100, width: 400, height: 300)
+        // 5pt in along the diagonal from a corner. A corner rounded to 20 leaves
+        // this point outside the hole; one rounded to 12 takes it in — which is
+        // precisely the difference being pinned down here.
+        let corner = CGPoint(x: rect.minX + 5, y: rect.minY + 5)
+        let focused = blurred(corner, reveal: Reveal(window: rect), radius: 20)
+        XCTAssertEqual(blurred(corner, reveal: Reveal(ownWindows: [rect]), radius: 20), focused)
+        XCTAssertEqual(blurred(corner, reveal: Reveal(excluded: [rect]), radius: 20), focused)
+    }
+
     /// A disc entirely inside the window changes nothing at all — the whole point
     /// of unioning rather than punching a second hole.
     func testDiscInsideTheWindowChangesNothing() {

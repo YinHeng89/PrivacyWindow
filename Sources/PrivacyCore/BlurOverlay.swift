@@ -221,7 +221,7 @@ final class BlurOverlay {
     /// directions: too large and the blur covers the window's own corners, which
     /// reads as the corners being bitten off; too small and a blurred wedge is
     /// left sitting on each of them.
-    var cornerRadius: CGFloat = 18
+    var cornerRadius: CGFloat = 20
 
     /// Stages a freshly blurred picture. It is not shown until the next
     /// `commit(reveal:)`, which pairs it with the revealed shapes of that very
@@ -491,9 +491,6 @@ final class BlurOverlay {
     private static let edgeRingCount = 6
     private static let edgeRingWidth: CGFloat = 2
     private static let edgeRingAlphas: [CGFloat] = [0.15, 0.10, 0.067, 0.045, 0.030, 0.020]
-    /// Corner radius used for *our own* windows, which AppKit draws much
-    /// tighter than the one `cornerRadius` is tuned to match.
-    private static let ownWindowCornerRadius: CGFloat = 12
     /// Hysteresis band for the edge tone: switch to dark above `darkAbove`,
     /// back to light below `lightBelow`, hold in between.
     private static let darkAbove: CGFloat = 0.55
@@ -653,17 +650,21 @@ final class BlurOverlay {
             let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
             shapes.append(Self.roundedRectPath(flipped, radii))
         }
-        // Both of these are ordinary windows AppKit draws with a tighter corner
-        // than `cornerRadius` is tuned for, so they get their own radius:
-        // cutting them looser leaves blurred tips poking into their corners.
+        // One radius for every window, including our own and the excluded
+        // ones: they are all ordinary windows AppKit draws with the same corner,
+        // so one tuned value is the only thing that can be right for all of
+        // them. They used to carry a tighter radius of their own, which meant
+        // they did not follow `cornerRadius` at all — raise it to match the
+        // system's windows and every window of ours kept four blurred wedges
+        // sitting on its corners.
         for own in reveal.ownWindows where !own.isEmpty {
             let flipped = Self.flipped(own, in: screen)
-            let radii = Self.cornerRadii(for: flipped, in: screen, radius: Self.ownWindowCornerRadius)
+            let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
             shapes.append(Self.roundedRectPath(flipped, radii))
         }
         for rect in reveal.excluded where !rect.isEmpty {
             let flipped = Self.flipped(rect, in: screen)
-            let radii = Self.cornerRadii(for: flipped, in: screen, radius: Self.ownWindowCornerRadius)
+            let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
             shapes.append(Self.roundedRectPath(flipped, radii))
         }
         if let cursor = reveal.cursor, !cursor.isEmpty {

@@ -1002,18 +1002,67 @@ final class PrivacyController: ObservableObject {
         // and a multi-screen setup pays for one read rather than one per
         // screen. Only read at all when it is going to be used.
         cursorPoint = cursorReveal ? Self.globalCursorPoint() : nil
+        // Read once for the whole frame: it decides every display's cutout, and
+        // one frame must not disagree with itself about who has the keyboard.
+        // See `ownWindowHasKeyboard`.
+        let keyboardIsOurs = ownWindowHasKeyboard
         for (id, overlay) in overlays {
             // A display the window has swallowed stops being *captured*, but
             // keeps the blur it is already showing. Emptying it instead would
             // flash the bare desktop — real, readable pixels — for the few
             // frames it takes to start capturing again.
-            overlay.commit(reveal: Reveal(
-                window: localHole(for: id),
-                cursor: cursorHole(for: id),
+            overlay.commit(reveal: Self.reveal(
+                focusHole: localHole(for: id),
+                cursorHole: cursorHole(for: id),
                 ownWindows: ownWindowHoles(for: id, among: ownWindows),
-                excluded: excludedHoles(for: id)
+                excluded: excludedHoles(for: id),
+                ownWindowHasKeyboard: keyboardIsOurs
             ))
         }
+    }
+
+    /// Whether one of *our* windows currently holds the keyboard — the Settings
+    /// window, in practice.
+    ///
+    /// The focus pick cannot choose our own windows (`FocusTracker.decode` drops
+    /// them, because a hole cut for our own blur would be a hole in the wrong
+    /// place), so while Settings is in front the scan falls through to the
+    /// topmost window of *another* app — which is whatever was in front before
+    /// Settings opened. Both windows then got a hole: the focused one because
+    /// the scan picked it, ours because our own windows are always cut out. Two
+    /// sharp windows on a blurred desktop, which is not what this app promises.
+    ///
+    /// The window with the keyboard is the one being used, so it is the one
+    /// that stays sharp: while ours has it, the focused window's hole is
+    /// dropped. The capture still excludes that window, so it is blurred
+    /// *and* inpainted rather than merely left out of the cutout.
+    private var ownWindowHasKeyboard: Bool {
+        // Overlays can never be key (`OverlayWindow.canBecomeKey` is false), so
+        // the only thing this has to rule out is a key window borrowed from
+        // somebody else — there is none — and the check below would be
+        // redundant. It is kept because the level an overlay sits at (15, under
+        // the "keep system chrome clear" mode) is inside the band the focus pick
+        // will accept, and a future change that lets an overlay become key
+        // would otherwise hand the whole screen a hole.
+        guard let key = NSApp.keyWindow else { return false }
+        return !(key is OverlayWindow)
+    }
+
+    /// Assembles one display's reveal. Pure, so the rule that our own window
+    /// outranks the focused one can be checked without a display attached.
+    static func reveal(
+        focusHole: CGRect?,
+        cursorHole: CGRect?,
+        ownWindows: [CGRect],
+        excluded: [CGRect],
+        ownWindowHasKeyboard: Bool
+    ) -> Reveal {
+        Reveal(
+            window: ownWindowHasKeyboard ? nil : focusHole,
+            cursor: cursorHole,
+            ownWindows: ownWindows,
+            excluded: excluded
+        )
     }
 
     private func refreshFocus() {

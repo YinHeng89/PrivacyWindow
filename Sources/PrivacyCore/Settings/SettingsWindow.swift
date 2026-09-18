@@ -292,7 +292,11 @@ struct SettingsRootView: View {
             .padding(.top, PW.S.s6)
             .padding(.bottom, PW.S.s7)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Inside the scrolling content, which is what puts this view close
+            // enough to reach the scroll view SwiftUI made for that content.
+            .background(ScrollerRemover())
         }
+        .scrollIndicators(.hidden)
     }
 
     @ViewBuilder
@@ -312,6 +316,67 @@ struct SettingsRootView: View {
 
     private var versionString: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "—"
+    }
+}
+
+// MARK: - Scrolling
+
+/// Takes the scroller out of the `NSScrollView` SwiftUI wrapped this content in.
+///
+/// Scrolling is kept; the bar is not. A light window over an already light
+/// backdrop had AppKit's scroller sitting on it as a grey slab with a hard edge,
+/// which read as a rendering fault rather than as chrome. The wheel, the
+/// keyboard and the scroll-to-top gesture all work without it.
+///
+/// `.scrollIndicators(.hidden)` asks SwiftUI to do the same thing and does not
+/// survive on macOS: the scroll view is *its* object, and a later update of its
+/// own puts the scroller back — measured, two seconds after the window was up,
+/// `hasVerticalScroller` is `true` and `scrollerStyle` is `legacy`, which is the
+/// wide grey slab (the system's "always show scroll bars" setting), not the thin
+/// overlay one. So the removal is done on the AppKit object, and repeated:
+/// every SwiftUI update of this view, plus a short burst of retries while the
+/// window settles.
+private struct ScrollerRemover: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { RemoverView() }
+    func updateNSView(_ view: NSView, context: Context) {
+        (view as? RemoverView)?.removeScrollers()
+    }
+
+    final class RemoverView: NSView {
+        /// How long after mounting to look again. The scroll view is configured
+        /// over several turns — mounted, laid out, shown — and SwiftUI writes
+        /// its own opinion about the scrollers more than once during that.
+        private static let retryDelays: [TimeInterval] = [0, 0.05, 0.2, 0.5, 1.0, 2.0]
+
+        private var retriesLeft = 0
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            retriesLeft = Self.retryDelays.count
+            retry()
+        }
+
+        private func retry() {
+            guard retriesLeft > 0 else { return }
+            let delay = Self.retryDelays[Self.retryDelays.count - retriesLeft]
+            retriesLeft -= 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.removeScrollers()
+                self?.retry()
+            }
+        }
+
+        /// Cheap and idempotent: it only touches anything while a scroller is
+        /// actually there, and giving one back is entirely up to SwiftUI.
+        func removeScrollers() {
+            guard let scroll = enclosingScrollView else { return }
+            guard scroll.hasVerticalScroller || scroll.hasHorizontalScroller else { return }
+            scroll.hasVerticalScroller = false
+            scroll.hasHorizontalScroller = false
+            scroll.verticalScroller = nil
+            scroll.horizontalScroller = nil
+        }
     }
 }
 

@@ -303,9 +303,13 @@ struct BehaviorScreen: View {
                 if !privacy.excludedApps.isEmpty {
                     Callout(
                         title: "这些应用的窗口始终清晰",
-                        message: "不管焦点在哪，它们的窗口都不会被模糊。焦点窗口照常露出，所以切换过去时两边都是清晰的 —— 只有其余区域保持模糊。",
+                        message: "不管焦点在哪，它们的窗口都不会被模糊。切换到别的应用时，两边都是清晰的 —— 只有其余区域保持模糊。唯一例外是本应用的设置窗口在最前时：那时只有设置窗口和这些窗口是清晰的。",
                         systemImage: "eye"
                     )
+                    // Breathes between the notice and the list below it. Without
+                    // it the two read as one block and the notice looks like it
+                    // is printed on top of the first row.
+                    .padding(.bottom, PW.S.s4)
                 }
                 GlassPanel {
                     VStack(spacing: 0) {
