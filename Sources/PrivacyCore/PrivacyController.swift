@@ -348,7 +348,7 @@ final class PrivacyController: ObservableObject {
     /// means this app's windows are never blurred, focused or not: switch from
     /// WeChat to another window and WeChat stays sharp *and* the newly focused
     /// window is sharp, with everything else still blurred.
-    private var excludedWindows: [CGRect] = []
+    private var excludedWindows: [SharpWindow] = []
     /// Rebuilt every few frames, not every frame — see `refreshExcludedWindows`.
     private static let excludedRefreshInterval = 6
 
@@ -366,7 +366,19 @@ final class PrivacyController: ObservableObject {
 
     /// On-screen windows owned by any of `bundleIDs`, in the global top-left
     /// space the rest of the app speaks.
-    static func windows(of bundleIDs: Set<String>) -> [CGRect] {
+    ///
+    /// Each returned window carries the windows stacked *in front* of it
+    /// (`coveredBy`): the list walks front-to-back, so whatever has already been
+    /// seen is nearer the viewer. The hole for an excluded window is punched as
+    /// its rounded rect *minus* those coverings, so a window that only peeks out
+    /// from behind another stays sharp only where it actually shows.
+    ///
+    /// The app's own windows — the overlay (level 15) and Settings — are kept out
+    /// of the occluder set on purpose: the overlay covers the whole screen and
+    /// would otherwise subtract every excluded hole down to nothing, and Settings
+    /// already gets its own hole, so its union with the excluded hole is correct
+    /// without also clipping it away here.
+    static func windows(of bundleIDs: Set<String>) -> [SharpWindow] {
         guard !bundleIDs.isEmpty,
               let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
         else { return [] }
@@ -375,12 +387,18 @@ final class PrivacyController: ObservableObject {
         // One look-up per process, not per window: an app with a dozen windows
         // would otherwise ask `NSWorkspace` the same question twelve times.
         var bundleIDByPID: [pid_t: String?] = [:]
-        var rects: [CGRect] = []
+        // Windows seen so far this pass, nearest the viewer first. They are the
+        // occluders for anything we meet later in the list.
+        var frontSoFar: [CGRect] = []
+        var result: [SharpWindow] = []
 
         for entry in list {
             // Only ordinary windows, using the same ceiling the focus pick uses.
             // A menu bar item or a Dock tile belongs to the app but is not a
-            // window anyone thinks of as "the app's window".
+            // window anyone thinks of as "the app's window". The ceiling stops
+            // at 19 on purpose: the Dock reports one window covering the entire
+            // screen, so letting it through would subtract every excluded hole
+            // down to nothing.
             guard let layer = entry[kCGWindowLayer as String] as? Int, layer >= 0, layer <= 19 else { continue }
             guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
                   let bounds = entry[kCGWindowBounds as String] as? [String: Any],
@@ -390,12 +408,21 @@ final class PrivacyController: ObservableObject {
 
             let bundleID: String? = bundleIDByPID[pid] ?? NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
             bundleIDByPID[pid] = bundleID
-            guard let bundleID, bundleID != own, let id = ExcludedApps.normalized(bundleID),
-                  bundleIDs.contains(id)
-            else { continue }
-            rects.append(rect)
+            let isOwn = bundleID == own || pid == ProcessInfo.processInfo.processIdentifier
+            if !isOwn, let id = ExcludedApps.normalized(bundleID), bundleIDs.contains(id) {
+                // Whatever already seen overlaps this window is in front of it and
+                // owns those pixels.
+                let cover = frontSoFar.filter { blocker in
+                    let overlap = rect.intersection(blocker)
+                    return overlap.width > 0 && overlap.height > 0
+                }
+                result.append(SharpWindow(rect: rect, coveredBy: cover))
+            }
+            // Seen either way: every later window that this one sits in front of
+            // must treat it as an occluder (the focus window included).
+            if !isOwn { frontSoFar.append(rect) }
         }
-        return rects
+        return result
     }
 
     /// Whether `displayID` is worth blurring right now.
@@ -1054,7 +1081,7 @@ final class PrivacyController: ObservableObject {
         focusHole: CGRect?,
         cursorHole: CGRect?,
         ownWindows: [CGRect],
-        excluded: [CGRect],
+        excluded: [SharpWindow],
         ownWindowHasKeyboard: Bool
     ) -> Reveal {
         Reveal(
@@ -1433,8 +1460,32 @@ final class PrivacyController: ObservableObject {
         clipToDisplay(rects, displayID: displayID)
     }
 
-    private func excludedHoles(for displayID: CGDirectDisplayID) -> [CGRect] {
-        clipToDisplay(excludedWindows, displayID: displayID)
+    /// The parts of excluded windows that land on `displayID`, re-based to
+    /// overlay-local points, carrying their covering windows with them so the
+    /// hole can subtract them.
+    private func excludedHoles(for displayID: CGDirectDisplayID) -> [SharpWindow] {
+        let bounds = CGDisplayBounds(displayID)
+        return excludedWindows.compactMap { win -> SharpWindow? in
+            let visible = win.rect.intersection(bounds)
+            guard !visible.isNull, visible.width > 1, visible.height > 1 else { return nil }
+            let local = CGRect(
+                x: visible.minX - bounds.minX,
+                y: visible.minY - bounds.minY,
+                width: visible.width,
+                height: visible.height
+            )
+            let covered = win.coveredBy.compactMap { c -> CGRect? in
+                let v = c.intersection(bounds)
+                guard !v.isNull, v.width > 1, v.height > 1 else { return nil }
+                return CGRect(
+                    x: v.minX - bounds.minX,
+                    y: v.minY - bounds.minY,
+                    width: v.width,
+                    height: v.height
+                )
+            }
+            return SharpWindow(rect: local, coveredBy: covered)
+        }
     }
 
     /// `rects` trimmed to `displayID` and re-based to overlay-local points.

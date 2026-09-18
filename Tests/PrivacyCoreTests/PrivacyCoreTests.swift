@@ -285,7 +285,7 @@ final class RevealTests: XCTestCase {
 
     /// `true` when the blur covers it, `false` when something is revealed there.
     /// Takes a **top-left** point and flips it the way `CALayer` wants it.
-    private func blurred(_ point: CGPoint, reveal: Reveal, radius: CGFloat = 18) -> Bool {
+    fileprivate func blurred(_ point: CGPoint, reveal: Reveal, radius: CGFloat = 18) -> Bool {
         BlurOverlay.maskPath(screen: screen, reveal: reveal, cornerRadius: radius)
             .contains(CGPoint(x: point.x, y: screen.height - point.y), using: .evenOdd)
     }
@@ -392,7 +392,7 @@ final class RevealTests: XCTestCase {
     func testExcludedAppWindowStaysSharpBesideTheFocus() {
         let reveal = Reveal(
             window: CGRect(x: 200, y: 150, width: 400, height: 300),
-            excluded: [CGRect(x: 700, y: 400, width: 400, height: 300)]
+            excluded: [SharpWindow(rect: CGRect(x: 700, y: 400, width: 400, height: 300), coveredBy: [])]
         )
         XCTAssertFalse(blurred(CGPoint(x: 300, y: 250), reveal: reveal), "the focused window")
         XCTAssertFalse(blurred(CGPoint(x: 900, y: 550), reveal: reveal), "the excluded app, unfocused")
@@ -424,7 +424,7 @@ final class RevealTests: XCTestCase {
     func testFocusHoleReturnsWhenOurWindowLosesTheKeyboard() {
         let hole = CGRect(x: 200, y: 150, width: 400, height: 300)
         let ours = [CGRect(x: 300, y: 200, width: 600, height: 400)]
-        let excluded = [CGRect(x: 700, y: 400, width: 400, height: 300)]
+        let excluded = [SharpWindow(rect: CGRect(x: 700, y: 400, width: 400, height: 300), coveredBy: [])]
         let back = PrivacyController.reveal(
             focusHole: hole, cursorHole: nil, ownWindows: ours, excluded: excluded,
             ownWindowHasKeyboard: false
@@ -455,7 +455,7 @@ final class RevealTests: XCTestCase {
         let corner = CGPoint(x: rect.minX + 5, y: rect.minY + 5)
         let focused = blurred(corner, reveal: Reveal(window: rect), radius: 20)
         XCTAssertEqual(blurred(corner, reveal: Reveal(ownWindows: [rect]), radius: 20), focused)
-        XCTAssertEqual(blurred(corner, reveal: Reveal(excluded: [rect]), radius: 20), focused)
+        XCTAssertEqual(blurred(corner, reveal: Reveal(excluded: [SharpWindow(rect: rect, coveredBy: [])]), radius: 20), focused)
     }
 
     /// A disc entirely inside the window changes nothing at all — the whole point
@@ -552,6 +552,83 @@ final class RevealTests: XCTestCase {
         )
         XCTAssertFalse(BlurOverlay.sameReveal(base, Reveal(window: window)))
         XCTAssertTrue(BlurOverlay.sameReveal(base, base))
+    }
+}
+
+/// The excluded-window hole is the window's rounded rect *minus* whatever is
+/// stacked on top of it. These check the subtraction geometry end to end through
+/// the real mask path: rounded where the window's own outline runs, straight
+/// where a covering window cuts across it, and never leaving a sharp hole where
+/// another window actually owns the pixels.
+final class ExcludedOcclusionTests: XCTestCase {
+    private let screen = CGSize(width: 1000, height: 800)
+
+    /// Same mask-sampling helper as `RevealTests`, kept local because it calls a
+    /// `@MainActor` method and must stay an instance method.
+    fileprivate func blurred(_ point: CGPoint, reveal: Reveal, radius: CGFloat = 18) -> Bool {
+        BlurOverlay.maskPath(screen: screen, reveal: reveal, cornerRadius: radius)
+            .contains(CGPoint(x: point.x, y: screen.height - point.y), using: .evenOdd)
+    }
+
+    private func excluded(_ rect: CGRect, coveredBy: [CGRect]) -> Reveal {
+        Reveal(excluded: [SharpWindow(rect: rect, coveredBy: coveredBy)])
+    }
+
+    /// One window parked over the middle of the excluded one: only what it covers
+    /// may blur, the rest of the excluded window stays sharp.
+    func testCoveringWindowBlursOnlyItsPart() {
+        let w = CGRect(x: 200, y: 150, width: 400, height: 300)
+        let c = CGRect(x: 400, y: 300, width: 300, height: 300) // overlaps x400-600, y300-450
+        let reveal = excluded(w, coveredBy: [c])
+        // Inside the excluded window, clear of the covering window.
+        XCTAssertFalse(blurred(CGPoint(x: 300, y: 220), reveal: reveal), "excluded, uncovered")
+        XCTAssertFalse(blurred(CGPoint(x: 220, y: 170), reveal: reveal), "excluded, far corner still sharp")
+        // Inside the overlap — that pixel belongs to the covering window.
+        XCTAssertTrue(blurred(CGPoint(x: 500, y: 380), reveal: reveal), "covered by the other window")
+        // Outside the excluded window entirely.
+        XCTAssertTrue(blurred(CGPoint(x: 50, y: 50), reveal: reveal), "outside everything")
+    }
+
+    /// The cut follows the covering window's straight edge: a hair to one side is
+    /// sharp, a hair to the other is blurred, with no rounded notch at the seam.
+    func testCutEdgeIsStraightAlongTheCovering() {
+        let w = CGRect(x: 200, y: 150, width: 400, height: 300)
+        let c = CGRect(x: 400, y: 300, width: 300, height: 300) // left edge at x=400, straight for y 320..580
+        let reveal = excluded(w, coveredBy: [c])
+        XCTAssertFalse(blurred(CGPoint(x: 395, y: 380), reveal: reveal), "just inside the excluded window")
+        XCTAssertTrue(blurred(CGPoint(x: 405, y: 380), reveal: reveal), "just inside the covering window")
+    }
+
+    /// Fully covered: the hole vanishes, the whole excluded window is blurred.
+    func testFullyCoveredWindowLeavesNoHole() {
+        let w = CGRect(x: 200, y: 150, width: 400, height: 300)
+        let reveal = excluded(w, coveredBy: [w])
+        XCTAssertTrue(blurred(CGPoint(x: 300, y: 250), reveal: reveal), "every pixel is someone else's")
+        XCTAssertTrue(blurred(CGPoint(x: 550, y: 420), reveal: reveal), "corner too")
+    }
+
+    /// Two covering windows that overlap each other must remove their *union*,
+    /// not xor back the overlap into sharpness.
+    func testOverlappingCoveringsRemoveTheirUnion() {
+        let w = CGRect(x: 200, y: 150, width: 400, height: 300)
+        let c1 = CGRect(x: 350, y: 250, width: 200, height: 200) // x350-550, y250-450
+        let c2 = CGRect(x: 450, y: 200, width: 200, height: 200) // x450-650, y200-400
+        let reveal = excluded(w, coveredBy: [c1, c2])
+        XCTAssertTrue(blurred(CGPoint(x: 380, y: 300), reveal: reveal), "behind c1 only")
+        XCTAssertTrue(blurred(CGPoint(x: 600, y: 300), reveal: reveal), "behind c2 only")
+        XCTAssertTrue(blurred(CGPoint(x: 500, y: 300), reveal: reveal), "behind both")
+        XCTAssertFalse(blurred(CGPoint(x: 250, y: 200), reveal: reveal), "behind neither, still sharp")
+    }
+
+    /// The focus window, being the topmost window, occludes an excluded window
+    /// behind it just like any other covering window does.
+    func testFocusWindowOccludesExcludedBehindIt() {
+        let w = CGRect(x: 200, y: 150, width: 400, height: 300)
+        let focus = CGRect(x: 380, y: 280, width: 260, height: 200)
+        // Simulates the data path: the focus window ends up in `coveredBy`.
+        let reveal = excluded(w, coveredBy: [focus])
+        XCTAssertTrue(blurred(CGPoint(x: 450, y: 350), reveal: reveal), "under the focused window")
+        XCTAssertFalse(blurred(CGPoint(x: 250, y: 200), reveal: reveal), "out in the clear")
     }
 }
 

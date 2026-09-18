@@ -18,6 +18,24 @@ final class OverlayWindow: NSWindow {
 ///
 /// Coordinates are overlay-local points with a top-left origin, the same space
 /// as `CGWindowList` and `CGDisplayBounds`.
+
+/// A window that must stay sharp, together with whatever is stacked in front of
+/// it.
+///
+/// An excluded app's window can have another app's window parked on top of it.
+/// Punching the whole bounding box would hand a sharp hole to that covering
+/// window too — the exact privacy promise this app would break — so the hole is
+/// the window's own rounded rect *minus* the union of its coverings. The
+/// subtraction is done in polygon space (see `holePath` and the helpers below)
+/// because `CGPath` exposes no boolean subtraction on this SDK.
+struct SharpWindow: Equatable {
+    /// The window's rectangle, in overlay-local top-left coordinates.
+    let rect: CGRect
+    /// Windows nearer the viewer that overlap `rect`, front to back. Their pixels
+    /// own the hole instead, so they are cut back out of it.
+    let coveredBy: [CGRect]
+}
+
 struct Reveal: Equatable {
     /// The focused window's cutout.
     ///
@@ -54,7 +72,13 @@ struct Reveal: Equatable {
     /// pauses while it is in front". Switching from WeChat to another window
     /// leaves WeChat sharp and makes the newly focused window sharp too; only
     /// everything else stays blurred.
-    var excluded: [CGRect] = []
+    ///
+    /// Each entry carries the windows stacked on top of it (`coveredBy`); the
+    /// hole is the window's rounded rect with those coverings subtracted, so a
+    /// window that only peeks out from behind another stays sharp only where it
+    /// actually shows — its own corners keep their radius, the cut follows the
+    /// covering window's edge.
+    var excluded: [SharpWindow] = []
 
     /// Nothing revealed: the whole screen stays blurred.
     static let none = Reveal()
@@ -505,22 +529,31 @@ final class BlurOverlay {
     /// before committing. Half a point is below a pixel on any display, and it
     /// cannot accumulate: the comparison is always against what was last
     /// committed, not against a drifting baseline.
-    static func sameReveal(_ a: Reveal, _ b: Reveal) -> Bool {
+    nonisolated static func sameReveal(_ a: Reveal, _ b: Reveal) -> Bool {
         sameRect(a.window, b.window) && sameRect(a.cursor, b.cursor) &&
-            sameRects(a.ownWindows, b.ownWindows) && sameRects(a.excluded, b.excluded)
+            sameRects(a.ownWindows, b.ownWindows) && sameSharpWindows(a.excluded, b.excluded)
     }
 
-    private static let revealTolerance: CGFloat = 0.5
+    /// Two revealed sets of excluded windows match when they match pairwise: same
+    /// window rectangle and same set of covering windows. A covering window
+    /// appearing or moving is a real change and must rebuild the mask.
+    private nonisolated static func sameSharpWindows(_ a: [SharpWindow], _ b: [SharpWindow]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy {
+            sameRect($0.rect, $1.rect) && sameRects($0.coveredBy, $1.coveredBy)
+        }
+    }
+
+    private nonisolated static let revealTolerance: CGFloat = 0.5
 
     /// Two lists of rects are the same when they are the same length and match
     /// pairwise. Order comes from the window server and is stable enough for
     /// that; sorting would hide a genuine reordering as a no-op, but the mask
     /// is a union, so a reordering is not one.
-    private static func sameRects(_ a: [CGRect], _ b: [CGRect]) -> Bool {
+    private nonisolated static func sameRects(_ a: [CGRect], _ b: [CGRect]) -> Bool {
         a.count == b.count && zip(a, b).allSatisfy { sameRect($0, $1) }
     }
 
-    private static func sameRect(_ a: CGRect?, _ b: CGRect?) -> Bool {
+    private nonisolated static func sameRect(_ a: CGRect?, _ b: CGRect?) -> Bool {
         switch (a, b) {
         case (nil, nil): return true
         case (let lhs?, let rhs?):
@@ -536,7 +569,7 @@ final class BlurOverlay {
     /// `CGWindowList` and the screenshot), but `CALayer` geometry uses a
     /// bottom-left origin — without flipping Y the hole renders vertically
     /// mirrored, moving down while the window moves up.
-    private static func flipped(_ hole: CGRect, in size: CGSize) -> CGRect {
+    private nonisolated static func flipped(_ hole: CGRect, in size: CGSize) -> CGRect {
         CGRect(
             x: hole.origin.x,
             y: size.height - hole.maxY,
@@ -563,7 +596,7 @@ final class BlurOverlay {
         let topLeft: CGFloat
     }
 
-    static func cornerRadii(for rect: CGRect, in size: CGSize, radius: CGFloat) -> CornerRadii {
+    nonisolated static func cornerRadii(for rect: CGRect, in size: CGSize, radius: CGFloat) -> CornerRadii {
         let clamped = min(max(radius, 0), min(rect.width, rect.height) / 2)
         let atLeft = rect.minX <= 0.5
         let atRight = rect.maxX >= size.width - 0.5
@@ -582,7 +615,7 @@ final class BlurOverlay {
     /// `CGPath` only offers a single uniform radius, so the corners are drawn
     /// one at a time; a zero radius falls back to a plain corner rather than
     /// relying on how `addArc` treats a degenerate radius.
-    private static func roundedRectPath(_ r: CGRect, _ radii: CornerRadii) -> CGPath {
+    private nonisolated static func roundedRectPath(_ r: CGRect, _ radii: CornerRadii) -> CGPath {
         let path = CGMutablePath()
         path.move(to: CGPoint(x: r.minX + radii.bottomLeft, y: r.minY))
         path.addLine(to: CGPoint(x: r.maxX - radii.bottomRight, y: r.minY))
@@ -631,7 +664,7 @@ final class BlurOverlay {
 
     /// An even-odd path covering the whole screen with everything revealed
     /// subtracted.
-    static func maskPath(screen: CGSize, reveal: Reveal, cornerRadius: CGFloat) -> CGPath {
+    nonisolated static func maskPath(screen: CGSize, reveal: Reveal, cornerRadius: CGFloat) -> CGPath {
         let path = CGMutablePath()
         path.addRect(CGRect(origin: .zero, size: screen))
         if let holes = Self.holePath(reveal: reveal, screen: screen, cornerRadius: cornerRadius) {
@@ -641,51 +674,65 @@ final class BlurOverlay {
     }
 
     /// Everything revealed as **one** even-odd-ready path, or `nil` when nothing
-    /// is. Being one path is the requirement, not a convenience: see the union
-    /// below.
-    static func holePath(reveal: Reveal, screen: CGSize, cornerRadius: CGFloat) -> CGPath? {
-        var shapes: [CGPath] = []
+    /// is. The mask fills full-screen minus this path, so every shape collected
+    /// here is a *sharp* cutout.
+    ///
+    /// Overlaps between revealed shapes must **union**, never cancel: a focus
+    /// window and the cursor disc crossing edges should both stay sharp, and our
+    /// own Settings window overlapping the focus must not re-blur the overlap. So
+    /// all the solid holes are merged into one path with an even-odd `union`.
+    ///
+    /// Each excluded app window is a sharp rounded rect with the windows stacked
+    /// in front of it cut back out via `subtracting`. The cut follows the covering
+    /// window's own rounded-rect outline, so the excluded window keeps its corners
+    /// and the cut edge carries the covering's corners too — a window peeking out
+    /// from behind another stays sharp only where it actually shows. A covering
+    /// parked wholly inside leaves a donut; `subtracting` keeps its inner loop as a
+    /// genuine subpath, and because that inner loop survives the later `union` as a
+    /// hole, the even-odd fill reads a point inside it as *blurred*, exactly as it
+    /// must.
+    nonisolated static func holePath(reveal: Reveal, screen: CGSize, cornerRadius: CGFloat) -> CGPath? {
+        // Solid holes, merged below into a single path.
+        var solids: [CGPath] = []
         if let window = reveal.window, !window.isEmpty {
             let flipped = Self.flipped(window, in: screen)
             let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
-            shapes.append(Self.roundedRectPath(flipped, radii))
+            solids.append(Self.roundedRectPath(flipped, radii))
         }
-        // One radius for every window, including our own and the excluded
-        // ones: they are all ordinary windows AppKit draws with the same corner,
-        // so one tuned value is the only thing that can be right for all of
-        // them. They used to carry a tighter radius of their own, which meant
-        // they did not follow `cornerRadius` at all — raise it to match the
-        // system's windows and every window of ours kept four blurred wedges
-        // sitting on its corners.
+        // One radius for every window, including our own and the excluded ones:
+        // they are all ordinary windows AppKit draws with the same corner, so one
+        // tuned value is the only thing that can be right for all of them.
         for own in reveal.ownWindows where !own.isEmpty {
             let flipped = Self.flipped(own, in: screen)
             let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
-            shapes.append(Self.roundedRectPath(flipped, radii))
+            solids.append(Self.roundedRectPath(flipped, radii))
         }
-        for rect in reveal.excluded where !rect.isEmpty {
-            let flipped = Self.flipped(rect, in: screen)
+        for shape in reveal.excluded where !shape.rect.isEmpty {
+            let flipped = Self.flipped(shape.rect, in: screen)
             let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
-            shapes.append(Self.roundedRectPath(flipped, radii))
+            var base = Self.roundedRectPath(flipped, radii)
+            for blocker in shape.coveredBy where !blocker.isEmpty {
+                let bf = Self.flipped(blocker, in: screen)
+                let visible = bf.intersection(CGRect(origin: .zero, size: screen))
+                guard !visible.isEmpty, visible.width > 1, visible.height > 1 else { continue }
+                let br = Self.cornerRadii(for: visible, in: screen, radius: cornerRadius)
+                let bp = Self.roundedRectPath(visible, br)
+                base = base.subtracting(bp, using: .evenOdd)
+            }
+            solids.append(base)
         }
         if let cursor = reveal.cursor, !cursor.isEmpty {
             let disc = CGMutablePath()
             disc.addEllipse(in: Self.flipped(cursor, in: screen))
-            shapes.append(disc)
+            solids.append(disc)
         }
-        guard var merged = shapes.first else { return nil }
-        // The one trap in having two revealed shapes.
-        //
-        // Even-odd is an exclusive-or: a point lying in both holes crosses
-        // three boundaries and reads as *inside* the mask, so the overlap gets
-        // blurred back over — a lens of haze straddling the boundary, appearing
-        // and vanishing as the cursor crosses it. Dragging the pointer onto the
-        // focused window's edge is an ordinary gesture that would hit this every
-        // single time.
-        //
-        // Unioning first turns "either shape" into one region, so it crosses
-        // exactly twice like a single hole does. `union` keeps curves as curves,
-        // so this costs nothing in fidelity.
-        for shape in shapes.dropFirst() { merged = merged.union(shape, using: .evenOdd) }
+        guard !solids.isEmpty else { return nil }
+        // Merge the solids into one path. Even-odd `union` keeps overlapping holes
+        // sharp together, and preserves a donut's inner loop as a hole.
+        var merged = solids[0].copy()!
+        for s in solids.dropFirst() {
+            merged = merged.union(s, using: .evenOdd)
+        }
         return merged
     }
 

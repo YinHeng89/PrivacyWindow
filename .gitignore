@@ -1,5 +1,6 @@
 # SwiftPM build artefacts
 .build/
+.build-cache/
 
 # App bundle produced by ./build.sh
 build/
