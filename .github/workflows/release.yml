@@ -1,0 +1,168 @@
+name: Release
+
+# Tag-driven publishing:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# produces a signed, notarized, stapled zip (what the update channel installs),
+# a dmg (what people download by hand), and a signed appcast describing both.
+#
+# It refuses to run unsigned. An ad-hoc signature changes on every build and
+# macOS keys the Screen Recording permission to the signature, so an unsigned
+# release would cost every user their permission grant on every update. See
+# docs/发布与自动更新.md.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      TAG: ${{ github.ref_name }}
+      SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Require a Developer ID
+        # Failing here beats publishing a package that resets everyone's
+        # Screen Recording permission.
+        run: |
+          if [[ -z "${SIGN_IDENTITY:-}" ]]; then
+            echo "::error::DEVELOPER_ID_APPLICATION is not set; refusing to publish an unsigned build."
+            exit 1
+          fi
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${TAG#v}"
+          # Drops the pre-release suffix: v0.3.0-rc.1 ships as 0.3.0
+          MARKETING="$(printf '%s' "$VERSION" | sed -E 's/-.*$//')"
+          echo "marketing=$MARKETING" >> "$GITHUB_OUTPUT"
+          echo "build=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$([[ "$VERSION" == *-* ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp the version into Info.plist
+        run: Scripts/stamp-version.sh "${{ steps.version.outputs.marketing }}" "${{ steps.version.outputs.build }}"
+
+      - name: Import the signing certificate
+        # A throwaway keychain: CI has no login keychain, and this one must not
+        # outlive the job.
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          PASSWORD="$(openssl rand -base64 24)"
+          P12="$RUNNER_TEMP/cert.p12"
+          echo -n "$P12_BASE64" | base64 --decode -o "$P12"
+          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security import "$P12" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" "$(security list-keychains -d user | tr -d '"' | tr '\n' ' ')"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Build and sign
+        run: ./build.sh --universal
+
+      - name: Zip
+        # Sparkle installs from a zip; it needs to be a zip of the .app itself,
+        # resource forks preserved.
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent build/PrivacyWindow.app "dist/PrivacyWindow-${{ steps.version.outputs.marketing }}.zip"
+
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool submit "dist/PrivacyWindow-${{ steps.version.outputs.marketing }}.zip" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+            --wait --timeout 25m
+
+      - name: Staple and re-zip
+        # The ticket has to be attached to the app, so: staple the app, then zip
+        # it again — otherwise Gatekeeper refuses it offline.
+        run: |
+          xcrun stapler staple build/PrivacyWindow.app
+          rm -f "dist/PrivacyWindow-${{ steps.version.outputs.marketing }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent build/PrivacyWindow.app "dist/PrivacyWindow-${{ steps.version.outputs.marketing }}.zip"
+          spctl -a -vv -t install build/PrivacyWindow.app
+
+      - name: Build the dmg
+        run: |
+          STAGING="$RUNNER_TEMP/dmg"
+          mkdir -p "$STAGING"
+          cp -R build/PrivacyWindow.app "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create -volname "隐私窗口 ${{ steps.version.outputs.marketing }}" \
+            -srcfolder "$STAGING" -ov -format UDZO \
+            "dist/PrivacyWindow-${{ steps.version.outputs.marketing }}.dmg"
+
+      - name: Generate the appcast
+        # generate_appcast signs the archive and, given the previous appcast,
+        # produces delta updates. The previous one is fetched from the site —
+        # which is where the feed is published — and the result is committed
+        # back so the site serves it.
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          FEED_URL: ${{ vars.APPCAST_URL }}
+        run: |
+          SPARKLE_VERSION="${SPARKLE_VERSION:-2.6.4}"
+          curl -fsSL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz" -o /tmp/sparkle.tar.xz
+          tar -xf /tmp/sparkle.tar.xz -C /tmp
+          GENERATE_APPCAST="/tmp/Sparkle-${SPARKLE_VERSION}/bin/generate_appcast"
+          chmod +x "$GENERATE_APPCAST"
+
+          CHANNEL_SUFFIX=""
+          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+            CHANNEL_SUFFIX="-prerelease"
+          fi
+          APPCAST="website/appcast${CHANNEL_SUFFIX}.xml"
+          mkdir -p website
+
+          # Existing feed, so delta updates can be computed. Missing on the
+          # first run, which is fine: it is generated from scratch.
+          if [[ -n "${FEED_URL:-}" ]]; then
+            curl -fsSL "${FEED_URL%/}/appcast${CHANNEL_SUFFIX}.xml" -o "$APPCAST" || rm -f "$APPCAST"
+          fi
+
+          export SPARKLE_ED_PRIVATE_KEY
+          "$GENERATE_APPCAST" --link "https://github.com/${{ github.repository }}/releases/latest" "$APPCAST" dist
+
+      - name: Publish the appcast to the site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add website/appcast*.xml
+          if git diff --cached --quiet; then
+            echo "appcast unchanged"
+            exit 0
+          fi
+          git commit -m "appcast for ${TAG} [skip ci]"
+          git push origin HEAD:main
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/*.dmg
+            website/appcast*.xml

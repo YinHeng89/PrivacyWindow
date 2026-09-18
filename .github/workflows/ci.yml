@@ -1,0 +1,31 @@
+name: CI
+
+# The merge gate: if this is red, nothing lands on main. It compiles and runs
+# the unit tests and nothing else — no signing, no packaging, so it stays fast
+# enough to run on every push.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        # Swift 6 toolchain; Package.swift is swift-tools-version 6.0.
+        run: sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Test
+        # XCTest ships with Xcode, not with the Command Line Tools, so this has
+        # to run on a runner with a full Xcode.
+        run: swift test

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>隐私窗口 PrivacyWindow — 只让当前窗口是清晰的</title>
+<meta name="description" content="一个常驻菜单栏的 macOS 小工具：只让当前焦点窗口保持清晰，其余所有背景全部实时高斯模糊。画面只在本机内存处理，不保存、不上传。">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<a class="skip" href="#main">跳到主要内容</a>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top">
+      <img class="brand-icon" src="assets/icon.png" alt="" width="32" height="32">
+      <span class="brand-name">隐私窗口</span>
+      <span class="brand-sub">PrivacyWindow</span>
+    </a>
+    <nav class="nav-links" aria-label="站内导航">
+      <a href="#features">特性</a>
+      <a href="#how">原理</a>
+      <a href="#privacy">隐私</a>
+      <a href="#faq">常见问题</a>
+      <a href="#download">下载</a>
+    </nav>
+    <div class="nav-actions">
+      <button class="theme-toggle" type="button" id="theme-toggle" aria-label="切换深浅配色">
+        <svg class="icon-moon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" fill="currentColor"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.2 5.2l1.9 1.9M16.9 16.9l1.9 1.9M18.8 5.2l-1.9 1.9M7.1 16.9l-1.9 1.9"/></g></svg>
+      </button>
+      <a class="btn btn-ghost" href="https://github.com/YinHeng89/PrivacyWindow" rel="noopener">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 1.8a10.2 10.2 0 0 0-3.2 19.9c.5.1.7-.2.7-.5v-1.9c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 4.9.4.4.7 1 .7 2v3c0 .3.2.6.7.5A10.2 10.2 0 0 0 12 1.8Z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero" id="top">
+    <div class="wrap hero-inner">
+      <div class="hero-copy">
+        <p class="eyebrow">macOS 菜单栏 · 开源</p>
+        <h1>只让当前窗口<br><span class="accent">是清晰的</span></h1>
+        <p class="lede">
+          打开之后，屏幕上除你正在用的那个窗口之外的一切 —— 其他窗口、桌面、菜单栏 ——
+          都被实时高斯模糊盖住。焦点窗口从洞里透出来，依然可点击、可输入、可交互。
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#download">下载 macOS 版</a>
+          <a class="btn btn-ghost" href="#how">它怎么做到</a>
+        </div>
+        <ul class="hero-facts">
+          <li>需要 macOS 14 及以上</li>
+          <li>画面只在本机内存处理</li>
+          <li>未授权屏幕录制也能用（降级模糊）</li>
+        </ul>
+      </div>
+
+      <div class="hero-demo">
+        <div class="demo" id="demo">
+          <div class="demo-bar">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <span class="demo-hint">点任意一个窗口，看焦点怎么走</span>
+          </div>
+          <div class="demo-screen">
+            <div class="demo-win demo-win--a is-focused" tabindex="0" role="button" aria-label="文稿窗口">
+              <div class="demo-titlebar"><span class="demo-title">季度总结.md</span></div>
+              <div class="demo-body">
+                <span class="ln w80"></span><span class="ln w60"></span><span class="ln w90"></span>
+                <span class="ln w45"></span><span class="ln w70"></span>
+              </div>
+            </div>
+            <div class="demo-win demo-win--b" tabindex="0" role="button" aria-label="聊天窗口">
+              <div class="demo-titlebar"><span class="demo-title">团队群聊</span></div>
+              <div class="demo-body">
+                <span class="bubble w55"></span><span class="bubble w70 alt"></span>
+                <span class="bubble w40"></span>
+              </div>
+            </div>
+            <div class="demo-win demo-win--c" tabindex="0" role="button" aria-label="终端窗口">
+              <div class="demo-titlebar"><span class="demo-title">终端</span></div>
+              <div class="demo-body mono">
+                <span class="ln w65"></span><span class="ln w40"></span><span class="ln w75"></span>
+              </div>
+            </div>
+            <div class="demo-desktop-line"></div>
+          </div>
+          <p class="demo-caption" id="demo-caption">焦点在「季度总结.md」—— 其余全部模糊</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="features">
+    <div class="wrap">
+      <h2 class="section-title">特性</h2>
+      <p class="section-lede">一个只做一件事的工具：让你只看见正在用的东西。</p>
+
+      <div class="grid grid-3">
+        <article class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="6.5" y="7" width="7" height="9" rx="1.5" fill="currentColor" opacity=".35"/><path d="M6 20h12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </div>
+          <h3>焦点跟着手走</h3>
+          <p>每帧向窗口服务器问一次「现在该看的是哪个窗口」，洞跟着它走。拖动窗口时全速跟随，松手即静。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="currentColor"/><g stroke="currentColor" stroke-width="1.7" fill="none" opacity=".7"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="10"/></g></svg>
+          </div>
+          <h3>模糊强度精确可调</h3>
+          <p>自己算高斯模糊，半径 5–60 pt 连续可调，不受系统预设材质档位限制。先给焦点窗口补色再模糊，边缘没有白光晕。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3 4 6.5v5.2c0 4.4 3.2 7.6 8 9.3 4.8-1.7 8-4.9 8-9.3V6.5L12 3Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.8 12.2l2.4 2.4 4-4.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <h3>没授权也能用</h3>
+          <p>未授予屏幕录制时自动切到系统模糊后端：强度只能粗调，但效果照样开着。授权之后一秒内切回精确模糊，不用重启。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="2.5" y="5" width="12" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="15" y="10" width="6.5" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.7" opacity=".6"/><path d="M6 17h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </div>
+          <h3>多显示器各自为政</h3>
+          <p>每张屏幕一层覆盖；焦点窗口在哪张屏，洞就挖在哪张屏，其余屏整体模糊。鼠标圆盘只画在光标所在那张屏上。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12.5 9.5 18 20 6.5" fill="none" stroke="currentColor" stroke-width="6" opacity=".16" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <h3>排除应用</h3>
+          <p>把某个应用加进排除列表，它的窗口就永远保持清晰，与焦点在哪无关。从它切到别的窗口时，两边都清晰，其余照旧模糊。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M13 2.5 5.5 13.5H11l-1 8 8.5-11.5H13l1-8Z" fill="currentColor"/></svg>
+          </div>
+          <h3>没事干就歇着</h3>
+          <p>桌面静止 0.75 秒降频到 30fps，完全静止约 15 秒降到 4fps；没有可聚焦窗口或系统休眠时，截图循环直接停止。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3.2c-4 0-6.5 2.6-6.5 6.5 0 3.4 1.8 5.4 3 6.3v2.3c0 .8 1.7.8 1.7 0v-.7c.6.1 1.2.2 1.8.2s1.2-.1 1.8-.2v.7c0 .8 1.7.8 1.7 0v-2.3c1.2-.9 3-2.9 3-6.3 0-3.9-2.5-6.5-6.5-6.5Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9.5 19.5h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </div>
+          <h3>菜单栏一键开关</h3>
+          <p>常驻菜单栏，左键可设成直接开关模糊、打开设置或弹出菜单；⌘, 打开设置。所有选项都会记住，下次启动照旧。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+          </div>
+          <h3>只有一个权限</h3>
+          <p>只申请「屏幕录制」。没有辅助功能权限、没有输入监听、不联网。画面在本机内存里处理完就丢掉。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="how">
+    <div class="wrap">
+      <h2 class="section-title">原理</h2>
+      <p class="section-lede">四步，每帧一次，图片和洞在同一个事务里提交 —— 所以两者永远属于同一帧。</p>
+
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num">1</span>
+          <h3>找焦点窗口</h3>
+          <p>向窗口服务器取一次窗口列表，按层级和归属分层挑选：先系统对话框，再最前 app 自己的窗口，最后其他可用窗口。</p>
+        </li>
+        <li class="step">
+          <span class="step-num">2</span>
+          <h3>截图并降采样</h3>
+          <p>ScreenCaptureKit 按窗口 ID 排除焦点窗口，按屏幕宽度降采样到约 1600px 宽，最多降到原像素的四分之一。</p>
+        </li>
+        <li class="step">
+          <span class="step-num">3</span>
+          <h3>补色 + 高斯模糊</h3>
+          <p>先把洞里填成周围一圈的平均色，再整体高斯模糊。没有亮像素可以往外晕，窗口周围就不会有白光晕。</p>
+        </li>
+        <li class="step">
+          <span class="step-num">4</span>
+          <h3>挖洞并提交</h3>
+          <p>用 even-odd 路径在覆盖层上挖出透明区域；焦点窗口、鼠标圆盘、自己的窗口、排除应用的窗口先求并集再挖，重叠处不会被糊回去。</p>
+        </li>
+      </ol>
+
+      <div class="note">
+        <h3>两个容易被忽略的细节</h3>
+        <ul>
+          <li><strong>窗沿阴影</strong>：焦点窗口不参与截图，在模糊背景上没有边界。洞外画了一圈很淡的递减描边，并按背景明暗自动选黑或白，纯白窗口压在白色背景上也看得清轮廓。</li>
+          <li><strong>并集而非叠加</strong>：even-odd 是异或，直接加两条子路径会让重叠区被重新糊上 —— 鼠标拖过窗口边缘时就是一块透镜形的糊斑。所以先求并集。</li>
+        </ul>
+      </div>
+
+      <div class="grid grid-2 backends">
+        <article class="card">
+          <p class="tag">默认</p>
+          <h3>截图后端</h3>
+          <p>ScreenCaptureKit 截屏 + <code>CIGaussianBlur</code>，半径精确可调，窗沿阴影按背景明暗自动选色。需要「屏幕录制」权限。</p>
+        </article>
+        <article class="card">
+          <p class="tag">降级</p>
+          <h3>系统模糊后端</h3>
+          <p>未授权时启用：覆盖层里放 <code>NSVisualEffectView</code>，由系统合成器直接模糊下层内容，不需要任何权限。代价是强度只能分四档近似，也没有窗沿阴影。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="privacy">
+    <div class="wrap privacy">
+      <div class="privacy-copy">
+        <h2 class="section-title">隐私承诺</h2>
+        <p class="section-lede">一个用来遮住屏幕的工具，自己首先得经得起看。</p>
+        <ul class="checks">
+          <li>画面只在本机内存中处理，不保存、不写盘、不上传</li>
+          <li>不申请辅助功能权限，不监听键盘输入</li>
+          <li>不做网络请求，没有遥测、没有统计</li>
+          <li>唯一需要的权限是「屏幕录制」，且只是它</li>
+          <li>源码公开，可以自己核对每一行做了什么</li>
+        </ul>
+      </div>
+      <figure class="privacy-art" aria-hidden="true">
+        <div class="privacy-art-inner">
+          <div class="pa-window"></div>
+          <div class="pa-window ghost"></div>
+          <div class="pa-window ghost"></div>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="faq">
+    <div class="wrap">
+      <h2 class="section-title">常见问题</h2>
+      <div class="faq">
+        <details>
+          <summary>为什么第一次启用要授权「屏幕录制」？</summary>
+          <p>精确模糊来自对屏幕画面的截图。不授权就得不到像素，只能退回系统合成的模糊 —— 效果还在，但强度只能粗调。授权后一秒内自动切回精确模糊。</p>
+        </details>
+        <details>
+          <summary>模糊的地方还能点得到吗？</summary>
+          <p>能。覆盖层不接收鼠标事件，这是刻意的：焦点窗口必须保持可交互。如果你需要背景完全点不到，那就要让覆盖层接收事件，代价是连焦点窗口一起挡住。当前版本选择保持焦点窗口可交互。</p>
+        </details>
+        <details>
+          <summary>为什么有些系统界面没有被模糊？</summary>
+          <p>「菜单栏与 Dock 保持清晰」默认开启，此时覆盖层降到系统界面之下，层级比菜单栏更高的东西（弹出菜单、通知、输入法候选栏、Spotlight）会一并露出来。关掉这个选项即可让覆盖层回到最高层，把它们一起糊上。</p>
+        </details>
+        <details>
+          <summary>全屏看视频时会怎么样？</summary>
+          <p>焦点窗口铺满整块屏幕时，该屏停止模糊并停止截图 —— 屏幕上已经没有需要藏起来的东西了，省下的算力直接还给你。</p>
+        </details>
+        <details>
+          <summary>和 HazeOver 有什么区别？</summary>
+          <p>它用「模糊」而不是「变暗」：背景内容还在，只是认不出来。另外模糊半径连续可调，有未授权时的降级路径，排除应用是「窗口始终清晰」而不是「前台时整体待机」。</p>
+        </details>
+        <details>
+          <summary>以后怎么更新？</summary>
+          <p>v0.2.0 起会接入自动更新（Sparkle 2）：菜单栏里点「检查更新…」即可，安装包经过 Developer ID 签名与 Apple 公证。之前的版本请到 Releases 手动下载替换。</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="section download" id="download">
+    <div class="wrap download-inner">
+      <div class="download-copy">
+        <h2 class="section-title">下载</h2>
+        <p class="section-lede">当前版本 <strong>v0.1.0</strong>。需要 macOS 14 及以上，Apple Silicon 与 Intel 通用包。</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/YinHeng89/PrivacyWindow/releases/latest">下载最新版</a>
+          <a class="btn btn-ghost" href="https://github.com/YinHeng89/PrivacyWindow/releases">全部版本</a>
+        </div>
+        <ol class="install">
+          <li>下载 <code>.dmg</code>（或 <code>.zip</code>），把「隐私窗口」拖进「应用程序」。</li>
+          <li>首次打开若被 Gatekeeper 拦下，在访达里右键点击它，选择「打开」。</li>
+          <li>点菜单栏图标，选择「启用隐私模糊」，按提示授予屏幕录制权限。</li>
+        </ol>
+      </div>
+      <aside class="download-side">
+        <img class="download-icon" src="assets/logo.png" alt="隐私窗口应用图标" width="128" height="128">
+        <dl class="meta">
+          <div><dt>版本</dt><dd>0.1.0</dd></div>
+          <div><dt>系统要求</dt><dd>macOS 14+</dd></div>
+          <div><dt>架构</dt><dd>通用（arm64 / x86_64）</dd></div>
+          <div><dt>权限</dt><dd>屏幕录制（可选）</dd></div>
+          <div><dt>价格</dt><dd>免费，开源</dd></div>
+        </dl>
+        <p class="update-note">自动更新随 v0.2.0 上线，之后菜单栏「检查更新…」即可升级。</p>
+      </aside>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div class="footer-brand">
+      <img class="brand-icon" src="assets/icon.png" alt="" width="28" height="28">
+      <span>隐私窗口 · PrivacyWindow</span>
+    </div>
+    <nav class="footer-links" aria-label="页脚链接">
+      <a href="https://github.com/YinHeng89/PrivacyWindow" rel="noopener">源码</a>
+      <a href="https://github.com/YinHeng89/PrivacyWindow/releases" rel="noopener">版本</a>
+      <a href="https://github.com/YinHeng89/PrivacyWindow/issues" rel="noopener">反馈问题</a>
+      <a href="appcast.xml">appcast</a>
+    </nav>
+    <p class="footer-note">画面只在本机处理。本站不收集任何访问数据。</p>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
