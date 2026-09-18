@@ -939,7 +939,13 @@ final class PrivacyController: ObservableObject {
         // sharp, so there would be nothing to reveal, and keeping it alive here
         // would mean paying for the read (and for sixty mask rebuilds a second)
         // for a benefit nobody can see.
-        guard focus != nil else {
+        // Read before the focus test, because the cutout for our *own* windows
+        // does not depend on there being a focused window at all. The settings
+        // window sitting on an empty desktop is exactly that case: with no
+        // focus we would return here, never commit, and leave the overlay
+        // covering the one window of ours the user is trying to use.
+        let ownWindows = Self.ownWindowRects()
+        guard focus != nil || !ownWindows.isEmpty else {
             cursorPoint = nil
             return
         }
@@ -948,7 +954,6 @@ final class PrivacyController: ObservableObject {
         // and a multi-screen setup pays for one read rather than one per
         // screen. Only read at all when it is going to be used.
         cursorPoint = cursorReveal ? Self.globalCursorPoint() : nil
-        let ownWindows = Self.ownWindowRects()
         for (id, overlay) in overlays {
             // A display the window has swallowed stops being *captured*, but
             // keeps the blur it is already showing. Emptying it instead would

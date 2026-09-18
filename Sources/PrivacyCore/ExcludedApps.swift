@@ -15,8 +15,8 @@ struct ExcludedApps: Equatable {
     private(set) var bundleIDs: Set<String> = []
 
     init(_ rawIDs: any Sequence<String> = []) {
-        for raw in rawIDs where Self.normalized(raw) != nil {
-            bundleIDs.insert(Self.normalized(raw)!)
+        for raw in rawIDs {
+            if let id = Self.normalized(raw) { bundleIDs.insert(id) }
         }
     }
 

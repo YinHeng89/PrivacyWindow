@@ -368,14 +368,36 @@ struct BehaviorScreen: View {
 private struct ExcludedAppRow: View {
     struct App: Identifiable {
         let bundleID: String
+        let name: String
+        let icon: NSImage?
         var id: String { bundleID }
 
-        var url: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) }
-        var name: String {
-            if let url { FileManager.default.displayName(atPath: url.path) } else { bundleID }
-        }
-        var icon: NSImage? {
-            url.map { NSWorkspace.shared.icon(forFile: $0.path) }
+        /// Name and artwork, resolved once per identifier and then remembered.
+        ///
+        /// Both come from Launch Services, which goes to disk. Asking in
+        /// `body` meant every re-render — including every keystroke in the
+        /// search field, which re-renders all four pages — queried the disk
+        /// about every excluded app again, on the main thread.
+        ///
+        /// Unsafe-by-declaration rather than isolated: this is a cache of
+        /// immutable lookup results read and written only from the main thread,
+        /// and `NSImage` is not `Sendable`, so the actor-safe spellings do not
+        /// apply without a copy that would defeat the point.
+        nonisolated(unsafe) private static var cache: [String: (name: String, icon: NSImage?)] = [:]
+
+        init(bundleID: String) {
+            self.bundleID = bundleID
+            if let hit = Self.cache[bundleID] {
+                self.name = hit.name
+                self.icon = hit.icon
+                return
+            }
+            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+            let name = url.map { FileManager.default.displayName(atPath: $0.path) } ?? bundleID
+            let icon = url.map { NSWorkspace.shared.icon(forFile: $0.path) }
+            Self.cache[bundleID] = (name, icon)
+            self.name = name
+            self.icon = icon
         }
     }
 
@@ -437,10 +459,14 @@ private struct ExcludedAppAddRow: View {
     /// Running apps with a Dock presence, minus this one. Menu-bar-only agents
     /// are left out on purpose: an app without windows in front is not a state
     /// the exclusion rule can observe.
-    private var candidates: [NSRunningApplication] {
+    @State private var candidates: [NSRunningApplication] = []
+
+    private static func runningCandidates() -> [NSRunningApplication] {
         NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
-            .sorted { ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending }
+            .sorted {
+                ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending
+            }
     }
 
     var body: some View {
@@ -490,6 +516,11 @@ private struct ExcludedAppAddRow: View {
         .padding(.horizontal, PW.S.s4)
         .padding(.vertical, PW.S.s3)
         .frame(minHeight: 52)
+        // Filled when the row appears rather than on every evaluation of
+        // `body`. An app launched since then is missing from the menu until the
+        // page is shown again, which is a smaller fault than an IPC round trip
+        // on every keystroke typed into the search field.
+        .task { candidates = Self.runningCandidates() }
         .overlay(alignment: .top) {
             Rectangle().fill(PW.C.hairline(scheme)).frame(height: 0.5)
         }

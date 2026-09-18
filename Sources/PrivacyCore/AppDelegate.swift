@@ -67,6 +67,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let editItem = NSMenuItem()
         let edit = NSMenu(title: "Edit")
+        // Spelled as strings because there is no `#selector` for them: unlike
+        // `UIResponder`, AppKit's `NSResponder` exposes no `undo:`/`redo:` to
+        // Swift. They are resolved against the responder chain at run time, so
+        // a text field that handles undo claims them and anything else leaves
+        // the item disabled.
         edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
         edit.addItem(.separator())

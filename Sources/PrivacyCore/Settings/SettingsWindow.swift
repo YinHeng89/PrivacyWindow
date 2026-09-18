@@ -450,6 +450,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // back on screen and the keyboard dies mid-session.
         policyRestoreWork?.cancel()
         policyRestoreWork = nil
+        // Put it on screen *here*, before the focus pass below.
+        //
+        // Not redundant with `assertFocus`, which bails out on a window that is
+        // not visible — and a window that has only ever been assigned to a
+        // property is not visible, because nothing has ordered it in. Without
+        // this line the window is built, the focus pass decides it is not on
+        // screen, and nothing ever appears.
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         focusAttempt = 0
         scheduleFocusWork(delay: 0)
     }
@@ -482,17 +491,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// activated, its windows come forward at their own level anyway.
     private func assertFocus() {
         guard let window, window.isVisible else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        // The same ask through the modern API, which goes to the window server
-        // directly instead of through AppKit's idea of the active app. It is
-        // the one that actually lands on an `LSUIElement` app that has only
-        // just been promoted to regular.
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-        window.makeKeyAndOrderFront(nil)
+        // Already holding the keyboard — stop, and reset the budget so the next
+        // open starts with the full number of attempts again.
         guard !window.isKeyWindow else { focusAttempt = 0; return }
-        guard focusAttempt < 2 else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        // Six attempts, not three. The status-item menu takes a couple of run
+        // loop turns to finish closing, and each of those turns can hand the
+        // focus back to whoever was in front; giving up early is what leaves a
+        // visible window with a grey title bar.
+        guard focusAttempt < 6 else { return }
         focusAttempt += 1
-        scheduleFocusWork(delay: focusAttempt == 1 ? 0.08 : 0.25)
+        scheduleFocusWork(delay: focusAttempt == 1 ? 0.05 : 0.2)
     }
 
     private func scheduleFocusWork(delay: TimeInterval) {
@@ -509,6 +519,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// SwiftUI host if it is ever torn down.
     func windowWillClose(_ notification: Notification) {
         window = nil
+        // Nothing left to focus. Harmless without this — `assertFocus` bails on
+        // the nil window — but it keeps a scheduled block from running at all.
+        focusWork?.cancel()
+        focusWork = nil
+        focusAttempt = 0
         guard raisedActivationPolicy else { return }
         raisedActivationPolicy = false
         // Not in the same tick as the close. Dropping the policy while the
