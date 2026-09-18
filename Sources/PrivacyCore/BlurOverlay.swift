@@ -63,6 +63,14 @@ final class BlurOverlay {
 
     private let hostLayer = CALayer()
     private let maskLayer = CAShapeLayer()
+    /// Present only in the vibrancy fallback: the compositor's own blur,
+    /// standing in for a captured picture.
+    private let vibrancyView: NSVisualEffectView?
+    /// Whether this overlay draws a captured picture (`false`) or system blur
+    /// (`true`). Decides what `setPicture` means and whether an edge can be
+    /// drawn at all — with no pixels in hand there is nothing to sample a
+    /// luminance from.
+    private let usesVibrancy: Bool
     private let screen: NSScreen
     /// Concentric rings drawn just outside the cutout. They live *inside* the
     /// masked layer, so the even-odd mask clips them to the blurred area —
@@ -86,12 +94,20 @@ final class BlurOverlay {
     private var committedReveal: Reveal?
     private var hasCommittedReveal = false
 
-    /// - Parameter animateAppearance: fades the overlay in. Only right when
-    ///   the effect is being switched on; a display change replaces the
-    ///   overlays while the effect is already visible, and fading in from
-    ///   empty would flash the sharp desktop for a quarter of a second.
-    init(screen: NSScreen, animateAppearance: Bool = true) {
+    /// - Parameters:
+    ///   - animateAppearance: fades the overlay in. Only right when the effect
+    ///     is being switched on; a display change replaces the overlays while
+    ///     the effect is already visible, and fading in from empty would flash
+    ///     the sharp desktop for a quarter of a second.
+    ///   - vibrancy: run on **system blur** (`NSVisualEffectView`) rather than
+    ///     on captured pixels. Used when Screen Recording has not been granted:
+    ///     the compositor blurs whatever is behind this window and needs no
+    ///     permission, so the effect still works — just coarser, with the
+    ///     strength chosen from the system's material presets instead of the
+    ///     user's radius. See the fallback notes in `PrivacyController`.
+    init(screen: NSScreen, animateAppearance: Bool = true, vibrancy: Bool = false, blurRadius: Double = 20) {
         self.screen = screen
+        usesVibrancy = vibrancy
 
         let window = OverlayWindow(
             contentRect: screen.frame,
@@ -109,15 +125,40 @@ final class BlurOverlay {
 
         let view = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
         view.wantsLayer = true
-        hostLayer.frame = view.bounds
-        hostLayer.contentsGravity = .resize
-        hostLayer.mask = maskLayer
-        // A layer created in code defaults to a contentsScale of 1, which would
-        // rasterize the cutout's edges at half the display's resolution and
-        // leave them visibly soft against the sharp window behind them.
-        hostLayer.contentsScale = screen.backingScaleFactor
-        maskLayer.contentsScale = screen.backingScaleFactor
-        view.layer = hostLayer
+
+        if vibrancy {
+            // The compositor's blur, sampled from whatever sits behind this
+            // window. Masked with the very same even-odd shape the captured
+            // picture is masked with, so every reveal rule — focus window,
+            // cursor disc, own windows, the union fix — is shared by both
+            // backends and none of it is written twice.
+            let effect = NSVisualEffectView(frame: view.bounds)
+            effect.autoresizingMask = [.width, .height]
+            effect.blendingMode = .behindWindow
+            effect.material = Self.vibrancyMaterial(forRadius: blurRadius)
+            effect.state = .active
+            effect.wantsLayer = true
+            effect.layer?.masksToBounds = true
+            effect.layer?.mask = maskLayer
+            // Same reason as the captured branch below: a mask at its default
+            // scale of 1 rasterizes the cutout's edges at half the display's
+            // resolution, and soft edges against a sharp window read as dirt.
+            maskLayer.contentsScale = screen.backingScaleFactor
+            maskLayer.frame = view.bounds
+            view.addSubview(effect)
+            vibrancyView = effect
+        } else {
+            vibrancyView = nil
+            hostLayer.frame = view.bounds
+            hostLayer.contentsGravity = .resize
+            hostLayer.mask = maskLayer
+            // A layer created in code defaults to a contentsScale of 1, which would
+            // rasterize the cutout's edges at half the display's resolution and
+            // leave them visibly soft against the sharp window behind them.
+            hostLayer.contentsScale = screen.backingScaleFactor
+            maskLayer.contentsScale = screen.backingScaleFactor
+            view.layer = hostLayer
+        }
 
         edgeLayers = (0..<Self.edgeRingCount).map { _ in CAShapeLayer() }
         for layer in edgeLayers {
@@ -144,6 +185,22 @@ final class BlurOverlay {
         }
     }
 
+    /// The system material whose blur comes closest to a requested radius.
+    ///
+    /// `NSVisualEffectView` has no radius to set — only named materials, whose
+    /// strength is the system's to define and does drift between releases. The
+    /// mapping is therefore an approximation by design, and the settings window
+    /// says so rather than implying the slider means the same thing it means in
+    /// the captured mode.
+    nonisolated static func vibrancyMaterial(forRadius radius: Double) -> NSVisualEffectView.Material {
+        switch radius {
+        case ..<12: return .hudWindow
+        case ..<25: return .underWindowBackground
+        case ..<40: return .fullScreenUI
+        default: return .menu
+        }
+    }
+
     /// Radius (points) of the focus-window cutout corners.
     ///
     /// macOS does not expose a window's true corner radius, so this is an
@@ -157,13 +214,25 @@ final class BlurOverlay {
     /// Stages a freshly blurred picture. It is not shown until the next
     /// `commit(reveal:)`, which pairs it with the revealed shapes of that very
     /// frame.
+    ///
+    /// A no-op in vibrancy mode: there is no capture loop to produce a picture,
+    /// and the system material already owns the backdrop.
     func setPicture(_ frame: BlurredFrame) {
+        guard !usesVibrancy else { return }
         pendingPicture = frame.image
         // The edge colour only needs to track slow changes in the background,
         // and a raw per-frame sample would make it flicker on busier desktops.
         if let sample = frame.surroundLuminance {
             surroundLuminance = surroundLuminance.map { $0 * 0.8 + sample * 0.2 } ?? sample
         }
+    }
+
+    /// Retunes the system material after a blur-radius change. Only meaningful
+    /// in vibrancy mode; the captured backend applies the radius in the blur
+    /// itself.
+    func setBlurRadius(_ radius: Double) {
+        guard let vibrancyView else { return }
+        vibrancyView.material = Self.vibrancyMaterial(forRadius: radius)
     }
 
     /// Commits the pending picture and the revealed shapes in one transaction.
@@ -182,10 +251,15 @@ final class BlurOverlay {
         // half-point the pointer travels.
         let windowChanged = !hasCommittedReveal || !Self.sameRect(committedReveal?.window, reveal.window)
         guard revealChanged || pendingPicture != nil else { return }
+        // A jump is a focus *switch* — the cutout leaping from one window to
+        // another — as opposed to the sub-point jitter of a window being dragged.
+        // Only jumps animate: interpolating a drag would leave the cutout
+        // trailing behind the very window it exists to hug.
+        let jump = windowChanged && Self.isJump(from: committedReveal?.window, to: reveal.window)
 
+        var pictureArrived = false
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        var pictureArrived = false
         if let picture = pendingPicture {
             hostLayer.contents = picture
             hostLayer.frame = CGRect(origin: .zero, size: screen.frame.size)
@@ -193,7 +267,20 @@ final class BlurOverlay {
             pictureArrived = true
             hasPicture = true
         }
+        CATransaction.commit()
+
         if revealChanged {
+            // The mask animates in its own transaction rather than sharing the
+            // picture's: a `path` change is only interpolable with actions
+            // enabled, and the picture must never animate — it arrives one
+            // whole frame at a time.
+            CATransaction.begin()
+            if jump {
+                CATransaction.setAnimationDuration(Self.jumpDuration)
+                CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+            } else {
+                CATransaction.setDisableActions(true)
+            }
             maskLayer.path = Self.maskPath(
                 screen: screen.frame.size,
                 reveal: reveal,
@@ -203,13 +290,13 @@ final class BlurOverlay {
             maskLayer.frame = CGRect(origin: .zero, size: screen.frame.size)
             committedReveal = reveal
             hasCommittedReveal = true
+            CATransaction.commit()
         }
         // The edge follows the *window* — see `Reveal.window` — and its colour
         // follows the background, so it is refreshed when either one changed.
         if windowChanged || pictureArrived {
-            updateEdge(hole: reveal.window)
+            updateEdge(hole: reveal.window, animated: jump)
         }
-        CATransaction.commit()
     }
 
     /// Drops all content and the mask so the overlay renders nothing — the
@@ -247,7 +334,7 @@ final class BlurOverlay {
     /// because the rings live inside the masked layer, the even-odd mask clips
     /// them to the outside of the hole, so nothing is ever drawn over the sharp
     /// window itself.
-    private func updateEdge(hole: NSRect?) {
+    private func updateEdge(hole: NSRect?, animated: Bool = false) {
         guard let hole, !hole.isEmpty, hasPicture, surroundLuminance != nil else {
             // No honest reading of the surroundings for this frame — because
             // there is no cutout (the focus moved to another display), no
@@ -262,7 +349,10 @@ final class BlurOverlay {
             // the threshold, so it would not self-correct.
             surroundLuminance = nil
             edgeIsDark = nil
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             for layer in edgeLayers { layer.path = nil }
+            CATransaction.commit()
             return
         }
         let flipped = Self.flipped(hole, in: screen.frame.size)
@@ -270,6 +360,16 @@ final class BlurOverlay {
         let base = edgeTone() ? NSColor.black : NSColor.white
         let corner = cutoutCornerRadius(for: hole)
 
+        // The rings ride along with an animated cutout: committing them with
+        // actions disabled would leave a 12pt halo sitting at the old position
+        // for the length of the transition, then snapping over.
+        CATransaction.begin()
+        if animated {
+            CATransaction.setAnimationDuration(Self.jumpDuration)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        } else {
+            CATransaction.setDisableActions(true)
+        }
         for (index, layer) in edgeLayers.enumerated() {
             // Ring `index` covers the band `index·w … (index+1)·w` outward from
             // the cutout, so the innermost edge sits exactly on the boundary.
@@ -298,7 +398,32 @@ final class BlurOverlay {
             layer.path = Self.roundedRectPath(local, radii)
             layer.strokeColor = base.withAlphaComponent(Self.edgeRingAlphas[index]).cgColor
         }
+        CATransaction.commit()
     }
+
+    /// Whether the window cutout moved far enough to be a focus *switch* rather
+    /// than a drag.
+    ///
+    /// Two signals, because a switch comes in two shapes. A move to another
+    /// window elsewhere on screen shows up as centre travel; maximising or
+    /// un-maximising in place barely moves the centre at all but sends the
+    /// corners flying, so a large proportional resize counts too.
+    ///
+    /// The threshold has to clear the fastest ordinary drag: at 60 Hz a window
+    /// dragged at ~2000 pt/s moves about 33 pt per tick, so anything below that
+    /// would catch real drags and make the cutout lag behind its own window.
+    nonisolated static func isJump(from: CGRect?, to: CGRect?) -> Bool {
+        guard let from, let to, !from.isEmpty, !to.isEmpty else { return false }
+        let centreTravel = hypot(from.midX - to.midX, from.midY - to.midY)
+        if centreTravel > Self.jumpCentreThreshold { return true }
+        return abs(from.width - to.width) > from.width * Self.jumpResizeFraction
+            || abs(from.height - to.height) > from.height * Self.jumpResizeFraction
+    }
+
+    private static let jumpCentreThreshold: CGFloat = 64
+    private static let jumpResizeFraction: CGFloat = 0.3
+    /// How long a focus switch takes to slide the cutout across.
+    private static let jumpDuration: CFTimeInterval = 0.24
 
     /// Corner radius to cut the hole with.
     ///

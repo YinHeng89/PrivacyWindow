@@ -38,12 +38,32 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         privacy.disable()
     }
 
-    /// The menu is never shown — this is an `LSUIElement` app with no menu bar
-    /// of its own — but a main menu is still how standard key equivalents reach
-    /// the responder chain. Without it ⌘A/⌘C/⌘V do nothing in the settings
-    /// window's search field and ⌘W does not close the window.
+    /// Mostly invisible, but not entirely: a main menu is still how standard key
+    /// equivalents reach the responder chain. Without it ⌘A/⌘C/⌘V do nothing in
+    /// the settings window's search field and ⌘W does not close the window.
+    ///
+    /// It is also on screen for real while Settings is open, because the window
+    /// temporarily makes the app a regular one (see `SettingsWindowController`)
+    /// — so it carries the application menu too, rather than showing a menu bar
+    /// made only of "编辑" and "窗口".
     private func installMainMenu() {
         let main = NSMenu()
+
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(
+            withTitle: "关于隐私窗口",
+            action: #selector(AppDelegate.showAbout),
+            keyEquivalent: ""
+        )
+        appMenu.addItem(.separator())
+        appMenu.addItem(
+            withTitle: "退出隐私窗口",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        appItem.submenu = appMenu
+        main.addItem(appItem)
 
         let editItem = NSMenuItem()
         let edit = NSMenu(title: "Edit")
@@ -65,5 +85,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(windowItem)
 
         NSApp.mainMenu = main
+    }
+
+    /// The application menu's "about" item. Opens Settings on its About tab
+    /// rather than AppKit's own panel, which would read from a `Credits.rtf`
+    /// this app does not ship.
+    @objc private func showAbout() {
+        settingsWindow?.open(tab: .about)
     }
 }

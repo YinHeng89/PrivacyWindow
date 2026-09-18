@@ -29,7 +29,7 @@ struct GeneralScreen: View {
                 GlassPanel {
                     SettingsRow(
                         icon: "hand.raised",
-                        iconTint: privacy.hasScreenRecordingPermission ? .neutral : .danger,
+                        iconTint: permissionTint,
                         title: "屏幕录制",
                         subtitle: permissionSubtitle,
                         isFirst: true,
@@ -103,10 +103,22 @@ struct GeneralScreen: View {
         )
     }
 
+    private var permissionTint: IconTile.Tint {
+        if privacy.hasScreenRecordingPermission { return .neutral }
+        // Missing permission is only a failure when there is no fallback
+        // carrying the effect; on the vibrancy backend it is a downgrade, not
+        // an outage.
+        return privacy.runsOnVibrancyFallback ? .accent : .danger
+    }
+
     private var permissionSubtitle: String {
-        privacy.hasScreenRecordingPermission
-            ? "已授权。模糊通过截图实现，没有它就没有效果。"
-            : "尚未授权。效果看起来是开着的，但不会有任何模糊。"
+        if privacy.hasScreenRecordingPermission {
+            return "已授权。模糊由截图计算，强度精确可调。"
+        }
+        if privacy.runsOnVibrancyFallback {
+            return "未授权，正在以「系统模糊」降级模式运行：效果可用，但强度只能近似。授权后 1 秒内自动切换回精确模糊。"
+        }
+        return "尚未授权。开启效果时会先以系统模糊运行，并向你请求授权。"
     }
 
     @ViewBuilder
@@ -146,11 +158,25 @@ struct AppearanceScreen: View {
             if match("模糊 强度 radius 半径 blur strength") {
                 SectionLabel(text: "模糊")
                 GlassPanel {
+                    if privacy.runsOnVibrancyFallback {
+                        // The slider still works in this mode — it picks the
+                        // nearest of the system's materials — but pretending it
+                        // means the same thing it means on captured pixels
+                        // would be a lie about what the user is getting.
+                        SettingsRow(
+                            icon: "cpu",
+                            title: "降级模式",
+                            subtitle: "未授权屏幕录制，模糊由系统合成，强度只能近似。授权后自动恢复精确半径。",
+                            isFirst: true
+                        )
+                    }
                     SettingsRow(
                         icon: "drop",
                         title: "模糊半径",
-                        subtitle: "越大越糊，也越费一帧的算力。",
-                        isFirst: true,
+                        subtitle: privacy.runsOnVibrancyFallback
+                            ? "当前按系统材质分档近似，无法逐点控制。"
+                            : "越大越糊，也越费一帧的算力。",
+                        isFirst: !privacy.runsOnVibrancyFallback,
                         trailing: {
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text("\(Int(privacy.currentBlurRadius.rounded())) pt")

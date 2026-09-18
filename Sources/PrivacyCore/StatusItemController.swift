@@ -56,6 +56,22 @@ final class StatusItemController {
             button.action = #selector(statusBarClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        // The on/off flip has exactly one broadcaster and this is its one
+        // listener: the state can be changed from the settings window while
+        // this icon sits in the menu bar the whole time, and from a menu that
+        // is already open when the window's master switch is used.
+        privacy.onEnabledChanged = { [weak self] on in
+            self?.reflectEnabled(on)
+        }
+        reflectEnabled(privacy.isEnabled)
+    }
+
+    /// Reflects the on/off state: the toggle item's title for a menu that may
+    /// already be open, and the icon's weight for every moment in between — a
+    /// dimmed eye reads as "not watching" without inventing a second glyph.
+    private func reflectEnabled(_ on: Bool) {
+        toggleItem?.title = on ? "停用隐私模糊" : "启用隐私模糊"
+        statusItem.button?.alphaValue = on ? 1 : 0.45
     }
 
     /// Rebuilt on every open, so items that mirror state — the on/off label,
@@ -182,7 +198,10 @@ final class StatusItemController {
             privacy.enable()
         }
         privacy.persistEnabled()
-        toggleItem?.title = privacy.isEnabled ? "停用隐私模糊" : "启用隐私模糊"
+        // The title patch lives in `reflectEnabled`, reached through
+        // `onEnabledChanged` — the same route a change from the settings
+        // window takes. Patching here as well would be a second, competing
+        // writer for no coverage this one does not have.
     }
 
     @objc private func setStrength(_ sender: NSMenuItem) {

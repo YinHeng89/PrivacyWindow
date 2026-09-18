@@ -64,7 +64,14 @@ enum PW {
     enum C {
         /// The one accent. Everything interactive and everything selected uses
         /// it, so it reads as "the app" rather than as decoration.
-        static var accent: Color { Color(hex: "#5B6EF5") ?? .accentColor }
+        ///
+        /// Taken from the app icon: the cornflower blue of the one sharp
+        /// window's toolbar, sitting on the icon's periwinkle blur. Deliberately
+        /// not the violet other apps in this genre use.
+        static var accent: Color { Color(hex: "#4C7DF3") ?? .accentColor }
+        /// A darker stop of the same hue, for gradients that need to hold up on
+        /// a light background without turning into pastel.
+        static var accentDeep: Color { Color(hex: "#3557C7") ?? accent }
         static var accentGlow: Color { accent.opacity(0.45) }
         static var accentSoft: Color { accent.opacity(0.12) }
 

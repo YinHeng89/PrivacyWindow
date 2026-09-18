@@ -19,28 +19,60 @@ func settingsSearchMatch(_ keywords: String, search: String) -> Bool {
 
 // MARK: - Surfaces
 
-/// The window's backdrop: a quiet wash so the floating panels have something to
-/// float over, in both appearances.
+/// The window's backdrop: the app icon's own scene, as a surface.
+///
+/// The icon shows a periwinkle desktop, blurred, with one crisp window on it.
+/// The settings window is that picture standing in for itself — a soft blue
+/// wash out of focus, with a few "ghost windows" blurred into it — and the
+/// glass panels on top are the one thing in focus, which is the product
+/// demonstrating what it does before a single word of copy does.
+///
+/// Nothing here is decoration for its own sake: the wash has to stay quiet
+/// enough that `.ultraThinMaterial` panels remain readable over it in both
+/// appearances, so every shape in it sits at low opacity and gets blurred hard.
 struct SettingsBackdrop: View {
     @Environment(\.colorScheme) var scheme
     var body: some View {
-        LinearGradient(
-            colors: scheme == .dark
-                ? [Color(hue: 0.66, saturation: 0.22, brightness: 0.17),
-                   Color(hue: 0.72, saturation: 0.20, brightness: 0.13)]
-                : [Color(hue: 0.66, saturation: 0.14, brightness: 0.97),
-                   Color(hue: 0.72, saturation: 0.12, brightness: 0.94)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .overlay(alignment: .topLeading) {
-            Circle()
-                .fill(PW.C.accent.opacity(scheme == .dark ? 0.35 : 0.45))
-                .frame(width: 360, height: 360)
-                .blur(radius: 70)
-                .offset(x: -140, y: -200)
+        ZStack {
+            LinearGradient(
+                colors: scheme == .dark
+                    ? [Color(hue: 0.635, saturation: 0.38, brightness: 0.21),
+                       Color(hue: 0.610, saturation: 0.32, brightness: 0.12)]
+                    : [Color(hue: 0.635, saturation: 0.30, brightness: 0.97),
+                       Color(hue: 0.605, saturation: 0.26, brightness: 0.91)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            ghostWindows
         }
         .ignoresSafeArea()
+    }
+
+    /// Out-of-focus shapes standing in for the desktop the product would blur:
+    /// two windows up top, an accent-coloured one low right, and a Dock-ish
+    /// strip along the bottom edge. Blurred as a group so they read as one
+    /// defocused field rather than as four objects.
+    private var ghostWindows: some View {
+        ZStack {
+            ghost(Color.white.opacity(scheme == .dark ? 0.10 : 0.50))
+                .frame(width: 340, height: 250)
+                .offset(x: -180, y: -160)
+            ghost(Color.white.opacity(scheme == .dark ? 0.07 : 0.38))
+                .frame(width: 300, height: 200)
+                .offset(x: 250, y: -80)
+            ghost(PW.C.accent.opacity(scheme == .dark ? 0.28 : 0.30))
+                .frame(width: 320, height: 160)
+                .offset(x: 110, y: 250)
+            ghost(Color.white.opacity(scheme == .dark ? 0.08 : 0.44))
+                .frame(width: 420, height: 56)
+                .offset(x: -30, y: 310)
+        }
+        .blur(radius: scheme == .dark ? 46 : 38)
+    }
+
+    private func ghost(_ color: Color) -> some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(color)
     }
 }
 
@@ -484,7 +516,13 @@ struct PrimaryButton: View {
             .frame(minHeight: 32)
             .background(
                 RoundedRectangle(cornerRadius: PW.R.control, style: .continuous)
-                    .fill(PW.C.accent)
+                    .fill(
+                        LinearGradient(
+                            colors: [PW.C.accent, PW.C.accentDeep],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                     .shadow(color: PW.C.accentGlow, radius: 12, y: 4)
             )
             .foregroundStyle(.white)

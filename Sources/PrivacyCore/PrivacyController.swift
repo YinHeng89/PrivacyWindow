@@ -82,6 +82,19 @@ final class PrivacyController: ObservableObject {
     private var permissionAlert: NSAlert?
 
     private var enabled = false
+    /// Which blur backend this session runs on.
+    ///
+    /// Picked when the session starts: with Screen Recording granted the blur
+    /// is computed from captured pixels (`ScreenCapturer` + `BlurProcessor`),
+    /// which is the precise, radius-tunable mode. Without it, the overlays run
+    /// on the compositor's own blur (`NSVisualEffectView`), which needs no
+    /// permission at all — so the app is never dead just because a permission
+    /// was declined, and the power-saving side of that mode is a bonus.
+    ///
+    /// The two share everything downstream of the picture: the reveal set, the
+    /// even-odd mask, the union rule, the window level. Only the backdrop
+    /// differs.
+    private var usesVibrancy = false
     private var blurRadius: Double = 20
     /// When true, the menu bar and the Dock are kept sharp (excluded from the
     /// blurred picture) instead of being blurred with everything else. On by
@@ -197,11 +210,29 @@ final class PrivacyController: ObservableObject {
     var revealsCursor: Bool { cursorReveal }
     var currentCursorRevealRadius: Double { cursorRevealRadius }
 
+    /// Fired on every enable/disable flip, from whichever surface caused it —
+    /// the menu, the settings window's master switch, a quit.
+    ///
+    /// The single outlet for the on/off state. Everything that *shows* the
+    /// state subscribes here instead of patching its own reflection after each
+    /// action it takes, because a patch-after-action is only correct for the
+    /// surface the action came from: toggling in the settings window used to
+    /// leave a menu that had already been built showing the old title, and
+    /// nothing at all updating the menu bar icon. The other settings do not
+    /// need this — the menu is rebuilt from scratch on every open — but the
+    /// on/off flip is the one that changes while a menu is open and while the
+    /// icon is staring at you.
+    var onEnabledChanged: ((Bool) -> Void)?
+
     /// Whether macOS has granted Screen Recording. Read live rather than cached:
     /// the user revokes and re-grants it while we are running, and a settings
     /// window that insists everything is fine while nothing blurs is worse than
     /// no settings window at all.
     var hasScreenRecordingPermission: Bool { capturer.hasPermission }
+    /// Whether the running session is on the system-blur fallback rather than
+    /// on captured pixels. The settings window uses it to describe the mode
+    /// honestly — the strength slider does not mean the same thing in both.
+    var runsOnVibrancyFallback: Bool { enabled && usesVibrancy }
 
     /// Blur radius bounds, in points. Beyond the upper bound the blur has eaten
     /// the screen entirely and every extra step only costs pixels and CPU; below
@@ -328,6 +359,10 @@ final class PrivacyController: ObservableObject {
         objectWillChange.send()
         blurRadius = clamped
         UserDefaults.standard.set(clamped, forKey: SettingsKey.blurRadius)
+        // The vibrancy backend applies a radius by picking the nearest system
+        // material, so its overlays hear about the change directly; the
+        // captured backend bakes the radius into the blur and is woken below.
+        for (_, overlay) in overlays { overlay.setBlurRadius(clamped) }
         // Wakes the capture loop: a settled loop would otherwise take up to
         // 33ms to pick up the new radius.
         settledFrames = 0
@@ -362,6 +397,7 @@ final class PrivacyController: ObservableObject {
         guard !enabled else { return }
         objectWillChange.send()
         enabled = true
+        usesVibrancy = !capturer.hasPermission
         if !capturer.hasPermission { capturer.requestPermission() }
         screenSignature = Self.currentScreenSignature()
         rebuildOverlays()
@@ -369,15 +405,20 @@ final class PrivacyController: ObservableObject {
 
         startDisplayLink()
         startClockMonitor()
-        startCaptureLoop()
-        // If Screen Recording was never granted, the effect is silently dead.
-        // Give the user a pointer to where it lives once the TCC prompt has
-        // settled, rather than leaving the menu item looking broken.
+        // The capture loop is the captured backend's whole engine; on the
+        // vibrancy one there is nothing to capture and nothing to pay for.
+        if !usesVibrancy { startCaptureLoop() }
+        // If Screen Recording was never granted, the effect used to be
+        // silently dead. On the vibrancy fallback it is not dead — it is
+        // running on system blur — so the warning only belongs to the captured
+        // backend, where a missing permission really does mean no blur.
         permissionWarnTask?.cancel()
-        permissionWarnTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard let self, self.enabled, !capturer.hasPermission else { return }
-            self.warnNoScreenRecordingPermission()
+        if !usesVibrancy {
+            permissionWarnTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard let self, self.enabled, !capturer.hasPermission else { return }
+                self.warnNoScreenRecordingPermission()
+            }
         }
 
         // `CVDisplayLink` silently stops ticking when the display set changes
@@ -423,6 +464,10 @@ final class PrivacyController: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleSpaceChange() }
         }
+
+        // Last, so a subscriber reading back through the public getters sees a
+        // session that is fully up rather than one that is half-built.
+        onEnabledChanged?(true)
     }
 
     /// A Space switch — which is what entering or leaving full-screen is —
@@ -607,6 +652,7 @@ final class PrivacyController: ObservableObject {
         guard enabled else { return }
         objectWillChange.send()
         enabled = false
+        usesVibrancy = false
         generation += 1
         displayLink?.stop()
         displayLink = nil
@@ -652,6 +698,7 @@ final class PrivacyController: ObservableObject {
         captureStartedAt = 0
         for observer in powerObservers { observer.center.removeObserver(observer.token) }
         powerObservers.removeAll()
+        onEnabledChanged?(false)
     }
 
     // MARK: - Clock
@@ -700,6 +747,7 @@ final class PrivacyController: ObservableObject {
         // never noticed at all — the effect stays off while the menu says it is
         // on, with no evidence either way.
         guard enabled, !powerPaused, !Self.isScreenLocked() else { return }
+        checkBackendMatchesPermission()
         // Every display carrying an overlay is asleep, so there was nothing to
         // draw and nothing to repair. Checking this is what keeps a sleeping
         // machine from having its display link rebuilt once a second all night.
@@ -721,6 +769,31 @@ final class PrivacyController: ObservableObject {
         displayLink = nil
         guard enabled else { return }
         startDisplayLink()
+    }
+
+    /// Rebuilds the session on the other blur backend when the permission the
+    /// current one was picked on has changed under us.
+    ///
+    /// The backend is chosen once per session, but Screen Recording is a living
+    /// setting: granted while the effect runs (the TCC prompt this app raised
+    /// on enable is exactly how), or revoked from System Settings. One
+    /// preflight a second — piggybacking on the clock that already exists — is
+    /// all it takes to notice, and the invariant is one comparison: vibrancy
+    /// and "granted" can never both be true.
+    private func checkBackendMatchesPermission() {
+        let shouldUseVibrancy = !capturer.hasPermission
+        guard usesVibrancy != shouldUseVibrancy else { return }
+        usesVibrancy = shouldUseVibrancy
+        objectWillChange.send()
+        stopCaptureLoop()
+        for (_, overlay) in overlays { overlay.close() }
+        overlays.removeAll()
+        lastCaptureNanos.removeAll()
+        lastCoveredDisplays.removeAll()
+        // No fade-in from empty: the effect is already on screen, and animating
+        // the swap would flash the bare desktop for a quarter of a second.
+        rebuildOverlays(animate: false)
+        if !usesVibrancy { startCaptureLoop() }
     }
 
     /// One compositor frame: re-reads the focus and commits picture + cutout as
@@ -1220,7 +1293,12 @@ final class PrivacyController: ObservableObject {
         capturer.invalidateFilters()
         for screen in NSScreen.screens {
             guard let id = screen.displayID else { continue }
-            let overlay = BlurOverlay(screen: screen, animateAppearance: animate)
+            let overlay = BlurOverlay(
+                screen: screen,
+                animateAppearance: animate,
+                vibrancy: usesVibrancy,
+                blurRadius: blurRadius
+            )
             overlay.setChromeClear(keepChrome)
             overlays[id] = overlay
         }

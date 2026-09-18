@@ -89,38 +89,46 @@ final class SettingsPreferences: ObservableObject {
 
 // MARK: - Tabs
 
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general, appearance, behavior, about
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .general: return "通用"
+        case .appearance: return "外观"
+        case .behavior: return "行为"
+        case .about: return "关于"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .general: return "gearshape"
+        case .appearance: return "paintbrush"
+        case .behavior: return "switch.2"
+        case .about: return "info.circle"
+        }
+    }
+}
+
+/// Which tab is showing, held outside the view so the window can be opened
+/// *on* a tab — the application menu's "关于" item lands on About — without the
+/// view having to be rebuilt from scratch.
+@MainActor
+final class SettingsTabSelection: ObservableObject {
+    @Published var tab: SettingsTab = .general
+}
+
 /// The root of the settings window: a floating sidebar of tabs, and a page that
 /// renders them.
 struct SettingsRootView: View {
     @EnvironmentObject var privacy: PrivacyController
     @EnvironmentObject var preferences: SettingsPreferences
+    @EnvironmentObject var selection: SettingsTabSelection
     @Environment(\.colorScheme) var scheme
 
-    @State private var selectedTab: SettingsTab = .general
     @State private var searchText = ""
     @FocusState private var searchFocused: Bool
-
-    enum SettingsTab: String, CaseIterable, Identifiable {
-        case general, appearance, behavior, about
-
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .general: return "通用"
-            case .appearance: return "外观"
-            case .behavior: return "行为"
-            case .about: return "关于"
-            }
-        }
-        var icon: String {
-            switch self {
-            case .general: return "gearshape"
-            case .appearance: return "paintbrush"
-            case .behavior: return "switch.2"
-            case .about: return "info.circle"
-            }
-        }
-    }
 
     var body: some View {
         ZStack {
@@ -137,7 +145,7 @@ struct SettingsRootView: View {
                 onTab: { index in
                     let all = SettingsTab.allCases
                     guard all.indices.contains(index) else { return }
-                    withAnimation(PW.M.glass) { selectedTab = all[index] }
+                    withAnimation(PW.M.glass) { selection.tab = all[index] }
                 },
                 onSearch: { searchFocused = true },
                 onEscape: {
@@ -223,9 +231,9 @@ struct SettingsRootView: View {
     }
 
     private func sidebarItem(_ tab: SettingsTab) -> some View {
-        let selected = selectedTab == tab
+        let selected = selection.tab == tab
         return Button {
-            withAnimation(PW.M.glass) { selectedTab = tab }
+            withAnimation(PW.M.glass) { selection.tab = tab }
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: tab.icon)
@@ -243,8 +251,11 @@ struct SettingsRootView: View {
                 ZStack {
                     if selected {
                         RoundedRectangle(cornerRadius: PW.R.control).fill(.ultraThinMaterial)
+                        // Tinted with the accent rather than washed white: the
+                        // selected tab should read as "this app's colour", not
+                        // as a generic highlight.
                         RoundedRectangle(cornerRadius: PW.R.control)
-                            .fill(Color.white.opacity(scheme == .dark ? 0.08 : 0.40))
+                            .fill(PW.C.accent.opacity(scheme == .dark ? 0.22 : 0.13))
                     }
                 }
             )
@@ -286,7 +297,7 @@ struct SettingsRootView: View {
 
     @ViewBuilder
     private var currentScreen: some View {
-        switch selectedTab {
+        switch selection.tab {
         case .general: GeneralScreen()
         case .appearance: AppearanceScreen()
         case .behavior: BehaviorScreen()
@@ -369,7 +380,19 @@ struct KeyboardShortcutsCatcher: NSViewRepresentable {
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let privacy: PrivacyController
     private let preferences: SettingsPreferences
+    private let selection = SettingsTabSelection()
     private var window: NSWindow?
+    /// Whether this controller is the one that raised the activation policy,
+    /// and so the one that has to put it back.
+    ///
+    /// The app may already be regular — some launch paths leave it that way —
+    /// and dropping a policy we never set would take away a Dock tile that
+    /// belongs to someone else.
+    private var raisedActivationPolicy = false
+    /// The pending "put the policy back" work, so a window closed and
+    /// immediately reopened does not get its activation pulled out from under
+    /// it by a restore that was scheduled before the reopen.
+    private var policyRestoreWork: DispatchWorkItem?
 
     init(privacy: PrivacyController, preferences: SettingsPreferences) {
         self.privacy = privacy
@@ -377,11 +400,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         super.init()
     }
 
-    func open() {
+    /// Opens the window, optionally on a particular tab.
+    func open(tab: SettingsTab? = nil) {
+        if let tab { selection.tab = tab }
         if window == nil {
             let view = SettingsRootView()
                 .environmentObject(privacy)
                 .environmentObject(preferences)
+                .environmentObject(selection)
             let window = NSWindow(contentViewController: NSHostingController(rootView: view))
             window.title = "隐私窗口设置"
             window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView, .resizable]
@@ -398,13 +424,43 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.center()
             self.window = window
         }
+        // An `LSUIElement` app is an **accessory**: no Dock tile, and — the part
+        // that actually bites — no right to own the keyboard. Showing a window
+        // from one and calling `activate` brings it up with an inactive title
+        // bar and dead text fields: the window is never made key, so keystrokes
+        // keep going to whatever app was in front before.
+        //
+        // The only dependable fix is to be a regular app for as long as the
+        // window is open. The cost is a Dock tile and a place in ⌘-Tab while
+        // Settings is up; `windowWillClose` takes both back, so the rest of the
+        // time this stays a menu-bar utility with no Dock presence at all.
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+            raisedActivationPolicy = true
+        }
+        // A close schedules the restore a quarter second out; an open inside
+        // that window has to cancel it, or the restore fires with the window
+        // back on screen and the keyboard dies mid-session.
+        policyRestoreWork?.cancel()
+        policyRestoreWork = nil
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        // `activate` alone leaves the window in its old stacking position when
+        // another app's window is already on screen above it.
+        window?.orderFrontRegardless()
     }
 
     /// Lets the next `open()` build a fresh window, which is also what drops the
     /// SwiftUI host if it is ever torn down.
     func windowWillClose(_ notification: Notification) {
         window = nil
+        guard raisedActivationPolicy else { return }
+        raisedActivationPolicy = false
+        // Not in the same tick as the close. Dropping the policy while the
+        // window is still on its way out flickers the Dock tile, and can leave
+        // the app that was in front before without a focus of its own.
+        let restore = DispatchWorkItem { NSApp.setActivationPolicy(.accessory) }
+        policyRestoreWork = restore
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: restore)
     }
 }

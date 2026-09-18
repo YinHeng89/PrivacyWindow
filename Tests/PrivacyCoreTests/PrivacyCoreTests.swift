@@ -462,6 +462,74 @@ final class RevealTests: XCTestCase {
     }
 }
 
+/// Only a focus *switch* may animate the cutout. A drag is a stream of tiny
+/// deltas; interpolating any of them would leave the cutout trailing behind
+/// the window it exists to hug.
+final class JumpTests: XCTestCase {
+    private let here = CGRect(x: 100, y: 100, width: 600, height: 400)
+
+    func testSubPointDriftIsNotAJump() {
+        let next = CGRect(x: 100.4, y: 100.3, width: 600, height: 400)
+        XCTAssertFalse(BlurOverlay.isJump(from: here, to: next))
+    }
+
+    func testAFastDragFrameIsStillNotAJump() {
+        // ~2000 pt/s at 60 Hz is about 33 pt per frame — faster than anyone
+        // drags with intent, and it must stay unanimated.
+        let next = here.offsetBy(dx: 33, dy: 0)
+        XCTAssertFalse(BlurOverlay.isJump(from: here, to: next))
+    }
+
+    func testALeapToAnotherWindowIsAJump() {
+        let elsewhere = CGRect(x: 1100, y: 300, width: 500, height: 350)
+        XCTAssertTrue(BlurOverlay.isJump(from: here, to: elsewhere))
+    }
+
+    func testMaximisingInPlaceIsAJump() {
+        // The centre barely moves when a window fills its display, but the
+        // corners travel most of the screen — the resize fraction is what
+        // catches this one.
+        let maximised = CGRect(x: 0, y: 0, width: 1512, height: 900)
+        XCTAssertTrue(BlurOverlay.isJump(from: here, to: maximised))
+    }
+
+    func testAppearingOrVanishingIsNeverAJump() {
+        XCTAssertFalse(BlurOverlay.isJump(from: nil, to: here))
+        XCTAssertFalse(BlurOverlay.isJump(from: here, to: nil))
+        XCTAssertFalse(BlurOverlay.isJump(from: nil, to: nil))
+    }
+}
+
+/// The fallback backend has no radius to set — only named system materials —
+/// so a requested radius maps onto the nearest preset. The mapping has to keep
+/// growing with the radius and never regress between neighbouring steps.
+final class VibrancyMaterialTests: XCTestCase {
+    func testRadiusMapsToAMaterial() {
+        let materials = [
+            BlurOverlay.vibrancyMaterial(forRadius: 5),
+            BlurOverlay.vibrancyMaterial(forRadius: 15),
+            BlurOverlay.vibrancyMaterial(forRadius: 30),
+            BlurOverlay.vibrancyMaterial(forRadius: 55),
+        ]
+        // Four distinct bands, and each band's representative is distinct from
+        // the others: a mapping that collapsed two bands would make a third of
+        // the slider do nothing at all.
+        XCTAssertEqual(Set(materials).count, 4)
+    }
+
+    func testStrongerRadiusNeverPicksAWeakerBand() {
+        // Band boundaries are fixed, so crossing one can only move forward in
+        // the switch's order — assert the neighbours land in the expected band
+        // rather than comparing raw cases, which would couple the test to the
+        // Material enum's own ordering.
+        let weak = BlurOverlay.vibrancyMaterial(forRadius: 5)
+        let strong = BlurOverlay.vibrancyMaterial(forRadius: 55)
+        XCTAssertNotEqual(weak, strong)
+        XCTAssertEqual(weak, BlurOverlay.vibrancyMaterial(forRadius: 11.9))
+        XCTAssertEqual(strong, BlurOverlay.vibrancyMaterial(forRadius: 40))
+    }
+}
+
 /// The window that has to stay readable: this app's own.
 @MainActor
 final class OwnWindowTests: XCTestCase {
