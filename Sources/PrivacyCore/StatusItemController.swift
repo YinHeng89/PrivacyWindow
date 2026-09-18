@@ -250,63 +250,98 @@ final class StatusItemController {
         NSApp.terminate(nil)
     }
 
-    /// The menu bar glyph: the same eye-with-a-slash as the app icon, drawn as
-    /// a template so macOS tints it to match the menu bar and turns it white
-    /// when the item is highlighted.
+    /// The menu bar glyph: the app icon's own scene, in template form — one
+    /// crisp window in focus, one defocused window losing itself behind it.
     ///
-    /// Drawn rather than taken from SF Symbols so the two icons are visibly the
-    /// same mark — the symbol face changes between macOS releases, and this one
-    /// is the identity of the app.
+    /// Drawn rather than taken from SF Symbols so the mark stays ours: the
+    /// symbol face changes between macOS releases, and this one is the identity
+    /// of the app. The crisp window is a *solid* shape with its details (traffic
+    /// lights, title-bar seam, content lines) punched out as holes, which keeps
+    /// it legible at 18 pt where an outline-and-dots drawing turns to mud; the
+    /// ghost behind is the opposite — a soft multi-pass stroke that reads as
+    /// out of focus. Solid against soft is the whole product in one glyph.
+    ///
+    /// Rendered into a 4× bitmap tagged at point size, so Retina menu bars get
+    /// real pixels instead of an upscaled 1× image.
     private static func menuBarIcon() -> NSImage {
         let side: CGFloat = 18
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
-            let ink = NSColor.black
-            ink.set()
+        let scale: CGFloat = 4
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(side * scale),
+            pixelsHigh: Int(side * scale),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .calibratedRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )!
+        let context = NSGraphicsContext(bitmapImageRep: rep)!
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.shouldAntialias = true
+        context.cgContext.scaleBy(x: scale, y: scale)
 
-            let eye = eyePath(size: side)
-            eye.lineWidth = 1.5
-            eye.lineCapStyle = .round
-            eye.lineJoinStyle = .round
-            eye.stroke()
-
-            NSBezierPath(ovalIn: NSRect(
-                x: side * 0.405,
-                y: side * 0.405,
-                width: side * 0.19,
-                height: side * 0.19
-            )).fill()
-
-            let slash = NSBezierPath()
-            slash.move(to: NSPoint(x: side * 0.20, y: side * 0.73))
-            slash.line(to: NSPoint(x: side * 0.80, y: side * 0.27))
-            slash.lineWidth = 1.7
-            slash.lineCapStyle = .round
-            slash.stroke()
-            return true
+        // The world behind, out of focus: a rounded rect that fades at its own
+        // edge — fill, then two strokes of decreasing weight and opacity, which
+        // the eye reads as defocus rather than as decoration.
+        let ghostRect = NSRect(x: 1.5, y: 8.1, width: 8.6, height: 8.5)
+        let ghost = NSBezierPath(roundedRect: ghostRect, xRadius: 2.1, yRadius: 2.1)
+        for (width, alpha) in [(CGFloat(2.6), CGFloat(0.08)), (CGFloat(1.6), CGFloat(0.14)), (CGFloat(0.9), CGFloat(0.30))] {
+            let ring = NSBezierPath(roundedRect: ghostRect, xRadius: 2.1, yRadius: 2.1)
+            ring.lineWidth = width
+            NSColor.black.withAlphaComponent(alpha).setStroke()
+            ring.stroke()
         }
+        NSColor.black.withAlphaComponent(0.10).setFill()
+        ghost.fill()
+
+        // The window in focus: solid, with the details knocked out. Everything
+        // that is a hole lives strictly inside the frame and never overlaps
+        // another hole — the path is one even-odd fill, so a second crossing
+        // would turn a hole back into ink.
+        let frame = NSRect(x: 4.6, y: 2.4, width: 11.6, height: 9.6)
+        let glyph = NSBezierPath()
+        glyph.windingRule = .evenOdd
+        glyph.append(NSBezierPath(roundedRect: frame, xRadius: 2.4, yRadius: 2.4))
+
+        // Traffic lights, on the title bar's centre line.
+        for x: CGFloat in [6.5, 8.2, 9.9] {
+            glyph.append(NSBezierPath(ovalIn: NSRect(x: x - 0.62, y: 10.13, width: 1.24, height: 1.24)))
+        }
+        // The seam under the title bar, inset from the sides so the title bar
+        // stays attached to the body instead of floating off as a pill.
+        glyph.append(NSBezierPath(
+            roundedRect: NSRect(x: 5.8, y: 8.75, width: 9.2, height: 0.95),
+            xRadius: 0.45, yRadius: 0.45
+        ))
+        // Content, two lines of it — three turns to noise at this size.
+        glyph.append(NSBezierPath(
+            roundedRect: NSRect(x: 6.3, y: 6.45, width: 7.8, height: 1.0),
+            xRadius: 0.5, yRadius: 0.5
+        ))
+        glyph.append(NSBezierPath(
+            roundedRect: NSRect(x: 6.3, y: 4.55, width: 5.4, height: 1.0),
+            xRadius: 0.5, yRadius: 0.5
+        ))
+
+        NSColor.black.setFill()
+        glyph.fill()
+
+        NSGraphicsContext.restoreGraphicsState()
+
+        // Only *after* drawing: a bitmap rep that already carries a point size
+        // hands the context a DPI scale of its own, and the CTM set below then
+        // composes with it — the ink lands a factor of `scale` away from where
+        // the geometry says, which in practice means nowhere at all.
+        rep.size = NSSize(width: side, height: side)
+
+        let image = NSImage(size: NSSize(width: side, height: side))
+        image.addRepresentation(rep)
         image.isTemplate = true
         image.accessibilityDescription = "隐私窗口"
         return image
-    }
-
-    /// The almond outline of the eye, in a square of the given side length.
-    /// Kept in step with the same shape in `Tools/generate-app-icon.swift`.
-    private static func eyePath(size: CGFloat) -> NSBezierPath {
-        let path = NSBezierPath()
-        let left = NSPoint(x: size * 0.16, y: size * 0.50)
-        let right = NSPoint(x: size * 0.84, y: size * 0.50)
-        path.move(to: left)
-        path.curve(
-            to: right,
-            controlPoint1: NSPoint(x: size * 0.30, y: size * 0.27),
-            controlPoint2: NSPoint(x: size * 0.70, y: size * 0.27)
-        )
-        path.curve(
-            to: left,
-            controlPoint1: NSPoint(x: size * 0.70, y: size * 0.73),
-            controlPoint2: NSPoint(x: size * 0.30, y: size * 0.73)
-        )
-        path.close()
-        return path
     }
 }

@@ -80,6 +80,13 @@ final class PrivacyController: ObservableObject {
     /// The permission sheet while it is up, so it outlives neither its own
     /// dismissal nor the session it belongs to.
     private var permissionAlert: NSAlert?
+    /// When the session last switched to the captured backend mid-run, while
+    /// its first captured frame was still outstanding. The restart hint lives
+    /// on this: a grant picked up mid-run is the one state where the effect
+    /// looks armed but macOS will never let it draw. See `checkRestartHint`.
+    private var backendSwitchedAwaitingFirstFrame: Date?
+    private var hasDeliveredFrameSinceBackendSwitch = false
+    private var captureAttemptsSinceBackendSwitch = 0
 
     private var enabled = false
     /// Which blur backend this session runs on.
@@ -112,6 +119,10 @@ final class PrivacyController: ObservableObject {
     /// before it arrives.
     private var cursorRevealRadius: Double = 120
     private var pauseForFullScreenApps = true
+    /// Apps the whole effect stands down for. While one of these is frontmost
+    /// the desktop stays sharp everywhere — the same state as "no focused
+    /// window", because the user has said this app has nothing to hide.
+    private(set) var excludedApps = ExcludedApps()
     /// Set while the machine is asleep, locked or running a screensaver.
     private var powerPaused = false
     /// When the pause started, so a session that never receives its resume
@@ -251,6 +262,7 @@ final class PrivacyController: ObservableObject {
         static let enabled = "enabled"
         static let revealCursor = "revealCursor"
         static let cursorRevealRadius = "cursorRevealRadius"
+        static let excludedApps = "excludedApps"
     }
 
     /// Loads any previously saved settings. Called once at launch, before the
@@ -276,6 +288,9 @@ final class PrivacyController: ObservableObject {
                 defaults.double(forKey: SettingsKey.cursorRevealRadius)
             )
         }
+        if let saved = defaults.stringArray(forKey: SettingsKey.excludedApps) {
+            excludedApps = ExcludedApps(saved)
+        }
         // Auto-resume the effect if it was on at quit. The on/off flag is
         // persisted from the menu toggle only, never from the quit/terminate
         // teardown, so quitting while blurred keeps it blurred next launch
@@ -299,6 +314,41 @@ final class PrivacyController: ObservableObject {
         pauseForFullScreenApps = on
         UserDefaults.standard.set(on, forKey: SettingsKey.pauseFullScreen)
         settledFrames = 0
+    }
+
+    // MARK: Excluded apps
+
+    /// Adds an app to the exclusion list and persists it. The effect reacts on
+    /// its next focus pass — at most a frame or two later — so no rebuild is
+    /// needed here.
+    func addExcludedApp(bundleID: String) {
+        guard !excludedApps.contains(bundleID) else { return }
+        objectWillChange.send()
+        excludedApps.insert(bundleID)
+        saveExcludedApps()
+        settledFrames = 0
+    }
+
+    /// Removes an app from the exclusion list and persists it.
+    func removeExcludedApp(bundleID: String) {
+        guard excludedApps.contains(bundleID) else { return }
+        objectWillChange.send()
+        excludedApps.remove(bundleID)
+        saveExcludedApps()
+        settledFrames = 0
+    }
+
+    private func saveExcludedApps() {
+        UserDefaults.standard.set(Array(excludedApps.bundleIDs), forKey: SettingsKey.excludedApps)
+    }
+
+    /// The bundle identifier of whatever app is frontmost right now, or `nil`.
+    /// Reading this is cheap — `NSWorkspace` keeps it — so it is checked on
+    /// every focus pass rather than only on app-switch notifications, which
+    /// this app deliberately does not subscribe to: one less observer whose
+    /// missed delivery would leave the effect running over an excluded app.
+    private var frontmostBundleID: String? {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
     }
 
     /// Whether `displayID` is worth blurring right now.
@@ -407,7 +457,16 @@ final class PrivacyController: ObservableObject {
         startClockMonitor()
         // The capture loop is the captured backend's whole engine; on the
         // vibrancy one there is nothing to capture and nothing to pay for.
-        if !usesVibrancy { startCaptureLoop() }
+        if !usesVibrancy {
+            startCaptureLoop()
+            // Arm the restart watchdog for the session: TCC is read once per
+            // launch, so a grant recorded while this process was already
+            // running can leave the capture engine silent for the whole
+            // session even though `hasPermission` says otherwise.
+            backendSwitchedAwaitingFirstFrame = Date()
+            hasDeliveredFrameSinceBackendSwitch = false
+            captureAttemptsSinceBackendSwitch = 0
+        }
         // If Screen Recording was never granted, the effect used to be
         // silently dead. On the vibrancy fallback it is not dead — it is
         // running on system blur — so the warning only belongs to the captured
@@ -653,6 +712,7 @@ final class PrivacyController: ObservableObject {
         objectWillChange.send()
         enabled = false
         usesVibrancy = false
+        backendSwitchedAwaitingFirstFrame = nil
         generation += 1
         displayLink?.stop()
         displayLink = nil
@@ -748,6 +808,7 @@ final class PrivacyController: ObservableObject {
         // on, with no evidence either way.
         guard enabled, !powerPaused, !Self.isScreenLocked() else { return }
         checkBackendMatchesPermission()
+        checkRestartHint()
         // Every display carrying an overlay is asleep, so there was nothing to
         // draw and nothing to repair. Checking this is what keeps a sleeping
         // machine from having its display link rebuilt once a second all night.
@@ -793,7 +854,76 @@ final class PrivacyController: ObservableObject {
         // No fade-in from empty: the effect is already on screen, and animating
         // the swap would flash the bare desktop for a quarter of a second.
         rebuildOverlays(animate: false)
-        if !usesVibrancy { startCaptureLoop() }
+        if !usesVibrancy {
+            startCaptureLoop()
+            // A grant picked up mid-run is exactly the case where macOS hands
+            // out the permission but the running process never gets to use it:
+            // TCC is read once per launch, so the capture engine can sit silent
+            // until the app is restarted. Arm the watchdog that notices.
+            backendSwitchedAwaitingFirstFrame = Date()
+            hasDeliveredFrameSinceBackendSwitch = false
+            captureAttemptsSinceBackendSwitch = 0
+        } else {
+            backendSwitchedAwaitingFirstFrame = nil
+        }
+    }
+
+    /// Fires the restart hint if the captured backend never produced a frame.
+    ///
+    /// Two conditions must both hold, because "no picture yet" has innocent
+    /// causes: there must have been real capture *attempts* (an empty desktop
+    /// or an excluded app in front simply runs no captures), and enough time
+    /// must have passed (ScreenCaptureKit's first frame can legitimately take
+    /// a second or two to arrive). Attempts without a single delivery over
+    /// six seconds is the signature of the stale-TCC case, and nothing else.
+    private func checkRestartHint() {
+        guard let switchedAt = backendSwitchedAwaitingFirstFrame else { return }
+        guard enabled, !usesVibrancy, hasDeliveredFrameSinceBackendSwitch == false else {
+            backendSwitchedAwaitingFirstFrame = nil
+            return
+        }
+        guard Date().timeIntervalSince(switchedAt) > 6,
+              captureAttemptsSinceBackendSwitch >= 5 else { return }
+        backendSwitchedAwaitingFirstFrame = nil
+        showRestartHint()
+    }
+
+    /// Tells the user that the grant arrived but the process cannot use it.
+    private func showRestartHint() {
+        let alert = NSAlert()
+        alert.messageText = "需要重启隐私窗口"
+        alert.informativeText = "「屏幕录制」权限已生效，但 macOS 只在应用启动时读取一次该授权——当前进程拿不到画面，所以模糊不会有变化。重新打开应用即可。"
+        alert.addButton(withTitle: "重新打开")
+        alert.addButton(withTitle: "稍后")
+        NSApp.activate(ignoringOtherApps: true)
+        permissionAlert = alert
+        let host = focus.flatMap { overlays[$0.displayID] }?.window ?? overlays.values.first?.window
+        guard let host else {
+            permissionAlert = nil
+            let response = alert.runModal()
+            permissionAlert = nil
+            if response == .alertFirstButtonReturn { relaunch() }
+            return
+        }
+        alert.beginSheetModal(for: host) { [weak self] response in
+            self?.permissionAlert = nil
+            guard response == .alertFirstButtonReturn else { return }
+            self?.relaunch()
+        }
+    }
+
+    /// Starts a fresh instance of this app and exits. `open -n` is issued from
+    /// a short-lived shell so it fires *after* this process is already on its
+    /// way out — `LSMultipleInstancesProhibited` makes a same-instant launch
+    /// of the same bundle id merely activate the dying instance otherwise.
+    private func relaunch() {
+        disable()
+        let bundlePath = Bundle.main.bundlePath
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 0.5; /usr/bin/open -n '\(bundlePath)'"]
+        try? task.run()
+        NSApp.terminate(nil)
     }
 
     /// One compositor frame: re-reads the focus and commits picture + cutout as
@@ -866,6 +996,20 @@ final class PrivacyController: ObservableObject {
         if candidate != nil, powerPaused,
            !Self.isScreenLocked() || Date.timeIntervalSinceReferenceDate - powerPausedAt > Self.maxPowerPause {
             resumeFromPower()
+        }
+        // An excluded app in front stands the whole effect down: the same state
+        // as "no focused window", for the same reason — the user has said this
+        // app has nothing on the desktop worth hiding. Checked on every pass
+        // rather than on app-switch notifications, so a missed notification can
+        // never leave the blur running over an excluded app.
+        if excludedApps.contains(frontmostBundleID) {
+            guard focus != nil else { return }
+            focus = nil
+            framesWithoutFocus = 0
+            settledFrames = 0
+            for (_, overlay) in overlays { overlay.clear() }
+            stopCaptureLoop()
+            return
         }
         guard let candidate else {
             framesWithoutFocus += 1
@@ -996,6 +1140,7 @@ final class PrivacyController: ObservableObject {
         guard captureStartedAt == 0 || startTime - captureStartedAt > Self.captureStallLimit else { return }
         captureStartedAt = startTime
         defer { captureStartedAt = 0 }
+        captureAttemptsSinceBackendSwitch += 1
 
         let generation = self.generation
         let snapshot = focus
@@ -1072,6 +1217,7 @@ final class PrivacyController: ObservableObject {
             guard generation == self.generation, !Task.isCancelled else { return }
             guard let blurred, self.focus?.windowID == snapshot.windowID else { continue }
             overlay.setPicture(blurred)
+            hasDeliveredFrameSinceBackendSwitch = true
             // Only a picture that was actually shown refreshes the throttle.
             // Timing a discarded one would push the next refresh out by a full
             // period for a display that is still holding the old frame.

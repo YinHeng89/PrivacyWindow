@@ -618,3 +618,71 @@ final class CoverageTests: XCTestCase {
         XCTAssertTrue(PrivacyController.covers(CGRect(x: 800, y: 100, width: 600, height: 400), in: bounds))
     }
 }
+
+// MARK: - Excluded apps
+
+/// The exclusion list is pure string handling, so it is tested as such: the
+/// interesting failures are all in how a raw identifier becomes a key.
+@MainActor
+final class ExcludedAppsTests: XCTestCase {
+    func testNormalizationTrimsAndLowercases() {
+        XCTAssertEqual(ExcludedApps.normalized("  Com.Apple.Safari \n"), "com.apple.safari")
+    }
+
+    func testEmptyAndNilNeverMatch() {
+        var apps = ExcludedApps()
+        apps.insert("com.apple.safari")
+        // `nil` is what an app without a bundle identifier reports, and an
+        // unidentifiable app must get the blur — the safe direction.
+        XCTAssertFalse(apps.contains(nil))
+        XCTAssertFalse(apps.contains(""))
+        XCTAssertFalse(apps.contains("   "))
+        XCTAssertEqual(ExcludedApps.normalized(nil), nil)
+        XCTAssertEqual(ExcludedApps.normalized("   "), nil)
+    }
+
+    func testInsertIsCaseAndWhitespaceInsensitive() {
+        var apps = ExcludedApps()
+        apps.insert("  Com.Apple.Safari ")
+        XCTAssertTrue(apps.contains("com.apple.safari"))
+        XCTAssertTrue(apps.contains("COM.APPLE.SAFARI"))
+        // Same key inserted twice stays one entry.
+        apps.insert("com.apple.Safari")
+        XCTAssertEqual(apps.bundleIDs.count, 1)
+    }
+
+    func testRemoveUsesTheSameNormalization() {
+        var apps = ExcludedApps(["com.apple.safari"])
+        apps.remove("  Com.Apple.Safari ")
+        XCTAssertTrue(apps.isEmpty)
+    }
+
+    func testInitDropsMalformedEntries() {
+        let apps = ExcludedApps(["com.apple.safari", "   ", ""])
+        XCTAssertEqual(apps.bundleIDs, ["com.apple.safari"])
+    }
+
+    func testExclusionAPIOnControllerPersistsRoundTrip() throws {
+        let defaults = UserDefaults.standard
+        let key = "excludedApps"
+        let original = defaults.stringArray(forKey: key)
+        defer {
+            if let original { defaults.set(original, forKey: key) } else { defaults.removeObject(forKey: key) }
+        }
+        defaults.removeObject(forKey: key)
+
+        let controller = PrivacyController()
+        controller.addExcludedApp(bundleID: "com.example.testapp")
+        XCTAssertEqual(controller.excludedApps.bundleIDs, ["com.example.testapp"])
+        // Persisted immediately, not on quit.
+        XCTAssertEqual(defaults.stringArray(forKey: key), ["com.example.testapp"])
+
+        // Adding twice is one entry.
+        controller.addExcludedApp(bundleID: "COM.EXAMPLE.TESTAPP")
+        XCTAssertEqual(controller.excludedApps.bundleIDs.count, 1)
+
+        controller.removeExcludedApp(bundleID: "com.example.testapp")
+        XCTAssertTrue(controller.excludedApps.isEmpty)
+        XCTAssertEqual(defaults.stringArray(forKey: key), [])
+    }
+}

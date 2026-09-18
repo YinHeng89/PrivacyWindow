@@ -298,6 +298,30 @@ struct BehaviorScreen: View {
                 }
             }
 
+            if match("排除 应用 排除应用 信任 白名单 前台 暂停 exclude app") {
+                SectionLabel(text: "排除应用")
+                GlassPanel {
+                    VStack(spacing: 0) {
+                        if privacy.excludedApps.isEmpty {
+                            SettingsRow(
+                                icon: "tray",
+                                iconTint: .neutral,
+                                title: "还没有排除任何应用",
+                                subtitle: "加入排除列表的应用位于前台时，整个效果会暂停 —— 全桌面保持清晰，退出前台后自动恢复。",
+                                isFirst: true
+                            )
+                        } else {
+                            ForEach(Array(displayedExcluded.enumerated()), id: \.element.bundleID) { index, app in
+                                ExcludedAppRow(app: app, isFirst: index == 0) {
+                                    privacy.removeExcludedApp(bundleID: app.bundleID)
+                                }
+                            }
+                        }
+                        ExcludedAppAddRow()
+                    }
+                }
+            }
+
             if search.isEmpty {
                 SectionLabel(text: "省电")
                 GlassPanel {
@@ -327,7 +351,149 @@ struct BehaviorScreen: View {
         Binding(get: { privacy.keepsChromeClear }, set: { privacy.setKeepChrome($0) })
     }
 
+    /// Excluded apps as display rows, named and ordered by their app name
+    /// rather than by the raw identifier the list is stored with.
+    private var displayedExcluded: [ExcludedAppRow.App] {
+        privacy.excludedApps.bundleIDs
+            .map { ExcludedAppRow.App(bundleID: $0) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     private func match(_ keywords: String) -> Bool { settingsSearchMatch(keywords, search: search) }
+}
+
+/// One excluded app: resolved to a name and a real icon where possible, with
+/// the raw bundle identifier kept visible underneath — it is the identifier
+/// that has to be unambiguous, not the name.
+private struct ExcludedAppRow: View {
+    struct App: Identifiable {
+        let bundleID: String
+        var id: String { bundleID }
+
+        var url: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) }
+        var name: String {
+            if let url { FileManager.default.displayName(atPath: url.path) } else { bundleID }
+        }
+        var icon: NSImage? {
+            url.map { NSWorkspace.shared.icon(forFile: $0.path) }
+        }
+    }
+
+    let app: App
+    let isFirst: Bool
+    let onRemove: () -> Void
+    @Environment(\.colorScheme) var scheme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !isFirst {
+                HStack(spacing: 0) {
+                    Color.clear.frame(width: 56)
+                    Rectangle().fill(PW.C.hairline(scheme)).frame(height: 0.5)
+                }
+            }
+            HStack(alignment: .center, spacing: PW.S.s3) {
+                Group {
+                    if let icon = app.icon {
+                        Image(nsImage: icon).resizable().interpolation(.high)
+                    } else {
+                        Image(systemName: "app.dashed")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(PW.C.text2(scheme))
+                    }
+                }
+                .frame(width: 32, height: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(app.name)
+                        .font(PW.T.title())
+                        .foregroundStyle(PW.C.text1(scheme))
+                    Text(app.bundleID)
+                        .font(PW.T.footnote())
+                        .foregroundStyle(PW.C.text3(scheme))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: PW.S.s3)
+                Button(action: onRemove) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(PW.C.red.opacity(0.75))
+                }
+                .buttonStyle(.plain)
+                .help("移出排除列表")
+            }
+            .padding(.horizontal, PW.S.s4)
+            .padding(.vertical, PW.S.s3)
+        }
+    }
+}
+
+/// The "add an app" row: a menu of everything running, so the list can be
+/// built without typing bundle identifiers.
+private struct ExcludedAppAddRow: View {
+    @EnvironmentObject var privacy: PrivacyController
+    @Environment(\.colorScheme) var scheme
+
+    /// Running apps with a Dock presence, minus this one. Menu-bar-only agents
+    /// are left out on purpose: an app without windows in front is not a state
+    /// the exclusion rule can observe.
+    private var candidates: [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
+            .sorted { ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending }
+    }
+
+    var body: some View {
+        HStack(spacing: PW.S.s3) {
+            IconTile(systemName: "plus", tint: .neutral)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("添加应用")
+                    .font(PW.T.title())
+                    .foregroundStyle(PW.C.text1(scheme))
+                Text(candidates.isEmpty ? "没有正在运行的常规应用可添加。" : "从正在运行的应用中选择。")
+                    .font(PW.T.bodyRegular())
+                    .foregroundStyle(PW.C.text2(scheme))
+            }
+            Spacer(minLength: PW.S.s3)
+            if !candidates.isEmpty {
+                Menu {
+                    ForEach(candidates, id: \.processIdentifier) { app in
+                        Button {
+                            if let id = app.bundleIdentifier { privacy.addExcludedApp(bundleID: id) }
+                        } label: {
+                            HStack {
+                                if let icon = app.icon {
+                                    Image(nsImage: icon).resizable().frame(width: 16, height: 16)
+                                }
+                                Text(app.localizedName ?? app.bundleIdentifier ?? "未知应用")
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                        Text("添加")
+                    }
+                    .font(PW.T.body())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule().fill(PW.C.control(scheme))
+                    )
+                    .overlay(Capsule().strokeBorder(PW.C.edgeRing(scheme), lineWidth: 0.5))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.visible)
+                .fixedSize()
+            }
+        }
+        .padding(.horizontal, PW.S.s4)
+        .padding(.vertical, PW.S.s3)
+        .frame(minHeight: 52)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PW.C.hairline(scheme)).frame(height: 0.5)
+        }
+    }
 }
 
 /// The throttles, stated rather than left to be discovered. Numbers, because

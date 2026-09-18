@@ -12,9 +12,10 @@
 // scaled to every size macOS asks for.
 //
 // The menu bar glyph is a separate mark, drawn in
-// `StatusItemController.eyePath(size:)`. A menu bar image has to be a
-// monochrome template, which this artwork cannot be, so the two are
-// deliberately not the same picture.
+// `StatusItemController.menuBarIcon()`: the same scene in template form — one
+// crisp window, one defocused ghost behind it. A menu bar image has to be
+// monochrome, which this artwork cannot be, so the two are deliberately not
+// the same picture.
 
 import AppKit
 import Foundation

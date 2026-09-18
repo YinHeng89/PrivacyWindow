@@ -206,8 +206,8 @@ struct SettingsRootView: View {
         .frame(width: 216)
         .background(
             ZStack {
-                Rectangle().fill(.ultraThinMaterial)
-                Rectangle().fill(scheme == .dark ? Color.white.opacity(0.04) : Color.white.opacity(0.12))
+                Rectangle().fill(.thinMaterial)
+                Rectangle().fill(scheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.30))
             }
             .clipShape(RoundedRectangle(cornerRadius: PW.R.card, style: .continuous))
             .overlay(
@@ -225,7 +225,7 @@ struct SettingsRootView: View {
                         lineWidth: 1
                     )
             )
-            .shadow(color: .black.opacity(scheme == .dark ? 0.40 : 0.14), radius: 22, y: 10)
+            .shadow(color: .black.opacity(scheme == .dark ? 0.32 : 0.10), radius: 22, y: 10)
         )
         .padding(PW.S.s2)
     }
@@ -393,6 +393,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// immediately reopened does not get its activation pulled out from under
     /// it by a restore that was scheduled before the reopen.
     private var policyRestoreWork: DispatchWorkItem?
+    /// The pending "make it key again" work. See `assertFocus` — bringing a
+    /// window up from a status item is a race, not a single call.
+    private var focusWork: DispatchWorkItem?
+    private var focusAttempt = 0
 
     init(privacy: PrivacyController, preferences: SettingsPreferences) {
         self.privacy = privacy
@@ -420,6 +424,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             // from scratch otherwise, and a SwiftUI host is not cheap to throw
             // away and re-create every time someone peeks at a slider.
             window.isReleasedWhenClosed = false
+            // AppKit briefly deactivates us while the status-item menu closes,
+            // and a window that hides on deactivation would blink out mid-open.
+            window.hidesOnDeactivate = false
             window.delegate = self
             window.center()
             self.window = window
@@ -443,11 +450,59 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // back on screen and the keyboard dies mid-session.
         policyRestoreWork?.cancel()
         policyRestoreWork = nil
+        focusAttempt = 0
+        scheduleFocusWork(delay: 0)
+    }
+
+    // MARK: Getting the keyboard
+
+    /// Brings the window up, and keeps at it until it actually holds the
+    /// keyboard.
+    ///
+    /// One `activate` + `makeKeyAndOrderFront` pair is not enough, and both
+    /// reasons produce the same symptom: a window on screen with a grey title
+    /// bar that swallows every keystroke.
+    ///
+    /// * The click that got here came from a status item. AppKit re-activates
+    ///   whichever app was in front the moment that menu finishes closing,
+    ///   which is *after* the action returns. Activating before that is
+    ///   activating into a race, and losing it looks exactly like no focus at
+    ///   all — the window is up, the keyboard belongs to someone else.
+    /// * An app whose activation policy is `.accessory` cannot be key at all.
+    ///   Switching to `.regular` is what grants it, and the window server needs
+    ///   a turn of the run loop to catch up with the switch.
+    ///
+    /// So: raise the policy, wait a turn, ask, then check whether the asking
+    /// took and ask again if it did not. `isKeyWindow` is the only honest
+    /// answer here — `activate` returns nothing.
+    ///
+    /// Note there is no `orderFrontRegardless()` after `makeKeyAndOrderFront`.
+    /// It orders the window up without touching key status, which is precisely
+    /// the state that reads as "visible but dead" — and once the app is
+    /// activated, its windows come forward at their own level anyway.
+    private func assertFocus() {
+        guard let window, window.isVisible else { return }
         NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
-        // `activate` alone leaves the window in its old stacking position when
-        // another app's window is already on screen above it.
-        window?.orderFrontRegardless()
+        // The same ask through the modern API, which goes to the window server
+        // directly instead of through AppKit's idea of the active app. It is
+        // the one that actually lands on an `LSUIElement` app that has only
+        // just been promoted to regular.
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        window.makeKeyAndOrderFront(nil)
+        guard !window.isKeyWindow else { focusAttempt = 0; return }
+        guard focusAttempt < 2 else { return }
+        focusAttempt += 1
+        scheduleFocusWork(delay: focusAttempt == 1 ? 0.08 : 0.25)
+    }
+
+    private func scheduleFocusWork(delay: TimeInterval) {
+        focusWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.focusWork = nil
+            self?.assertFocus()
+        }
+        focusWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Lets the next `open()` build a fresh window, which is also what drops the

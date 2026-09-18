@@ -35,11 +35,17 @@ struct SettingsBackdrop: View {
     var body: some View {
         ZStack {
             LinearGradient(
+                // Kept deliberately light for both appearances. The first pass
+                // sat at brightness 0.21→0.12 in dark, which read as a charcoal
+                // window rather than as a blurred desktop — and the whole point
+                // of the backdrop is to look like a *lit* screen seen out of
+                // focus. Dark mode is now closer to slate than to black; the
+                // hue is unchanged, only the level moved.
                 colors: scheme == .dark
-                    ? [Color(hue: 0.635, saturation: 0.38, brightness: 0.21),
-                       Color(hue: 0.610, saturation: 0.32, brightness: 0.12)]
-                    : [Color(hue: 0.635, saturation: 0.30, brightness: 0.97),
-                       Color(hue: 0.605, saturation: 0.26, brightness: 0.91)],
+                    ? [Color(hue: 0.635, saturation: 0.26, brightness: 0.34),
+                       Color(hue: 0.610, saturation: 0.24, brightness: 0.23)]
+                    : [Color(hue: 0.635, saturation: 0.20, brightness: 0.995),
+                       Color(hue: 0.605, saturation: 0.17, brightness: 0.955)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -95,7 +101,12 @@ struct GlassPanel<Content: View>: View {
             .background(
                 ZStack {
                     Rectangle().fill(.ultraThinMaterial)
-                    Rectangle().fill(scheme == .dark ? Color.white.opacity(0.04) : Color.white.opacity(0.10))
+                    // The material alone takes its tint from whatever is behind
+                    // it, which on the lighter backdrop reads almost transparent.
+                    // This wash is what makes a panel a surface: stronger in
+                    // light (to lift panels off the wash) and in dark (so the
+                    // text on them keeps its contrast).
+                    Rectangle().fill(scheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.22))
                 }
             )
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
