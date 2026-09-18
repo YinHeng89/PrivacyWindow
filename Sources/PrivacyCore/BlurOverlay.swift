@@ -23,9 +23,9 @@ struct Reveal: Equatable {
     ///
     /// This is the only member the edge shadow is drawn around, and that is not
     /// an oversight: the shadow stands in for the drop shadow a window loses by
-    /// being excluded from the screenshot. A disc following the cursor is
-    /// standing in for nothing, so tracing one would drag a grey ring around
-    /// every mouse movement.
+    /// being excluded from the screenshot. Neither of the others is standing in
+    /// for anything, so tracing one would drag a grey ring around every mouse
+    /// movement — or put a halo on the app's own settings window.
     var window: CGRect?
     /// The disc around the cursor, as its **bounding square**.
     ///
@@ -34,6 +34,15 @@ struct Reveal: Equatable {
     /// would squash the near edge of the circle into a straight-ish line. The
     /// overlay's own bounds do whatever clipping there is left to do.
     var cursor: CGRect?
+    /// One of *our own* windows that the overlay would otherwise cover — the
+    /// Settings window, in practice.
+    ///
+    /// The overlay sits above every ordinary window, including the ones this app
+    /// puts on screen, so without this you would open Settings and find it
+    /// sitting behind its own blur. Cutting them out is also why the settings
+    /// window does not need a window level above the overlay, which is what
+    /// breaks macOS's own screenshot tool for certain windows.
+    var ownWindow: CGRect?
 
     /// Nothing revealed: the whole screen stays blurred.
     static let none = Reveal()
@@ -345,6 +354,9 @@ final class BlurOverlay {
     private static let edgeRingCount = 6
     private static let edgeRingWidth: CGFloat = 2
     private static let edgeRingAlphas: [CGFloat] = [0.15, 0.10, 0.067, 0.045, 0.030, 0.020]
+    /// Corner radius used for *our own* windows, which AppKit draws much
+    /// tighter than the one `cornerRadius` is tuned to match.
+    private static let ownWindowCornerRadius: CGFloat = 12
     /// Hysteresis band for the edge tone: switch to dark above `darkAbove`,
     /// back to light below `lightBelow`, hold in between.
     private static let darkAbove: CGFloat = 0.55
@@ -360,7 +372,8 @@ final class BlurOverlay {
     /// cannot accumulate: the comparison is always against what was last
     /// committed, not against a drifting baseline.
     static func sameReveal(_ a: Reveal, _ b: Reveal) -> Bool {
-        sameRect(a.window, b.window) && sameRect(a.cursor, b.cursor)
+        sameRect(a.window, b.window) && sameRect(a.cursor, b.cursor) &&
+            sameRect(a.ownWindow, b.ownWindow)
     }
 
     private static let revealTolerance: CGFloat = 0.5
@@ -493,6 +506,15 @@ final class BlurOverlay {
         if let window = reveal.window, !window.isEmpty {
             let flipped = Self.flipped(window, in: screen)
             let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
+            shapes.append(Self.roundedRectPath(flipped, radii))
+        }
+        if let ownWindow = reveal.ownWindow, !ownWindow.isEmpty {
+            let flipped = Self.flipped(ownWindow, in: screen)
+            // Its own radius: `cornerRadius` is an empirical match for a
+            // *window's* corners, and a real window is drawn by AppKit with a
+            // tighter one. Cutting ours looser would leave blurred tips poking
+            // into the settings window's corners.
+            let radii = Self.cornerRadii(for: flipped, in: screen, radius: Self.ownWindowCornerRadius)
             shapes.append(Self.roundedRectPath(flipped, radii))
         }
         if let cursor = reveal.cursor, !cursor.isEmpty {

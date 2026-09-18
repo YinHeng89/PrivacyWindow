@@ -4,12 +4,18 @@ import AppKit
 final class StatusItemController {
     private let statusItem: NSStatusItem
     private let privacy: PrivacyController
+    private let preferences: SettingsPreferences
+    private let openSettings: () -> Void
 
-    private var toggleItem: NSMenuItem!
+    // All optional: the menu is built when it is first shown, and the icon can
+    // also answer a click with a toggle (see `menuBarClickAction`) without ever
+    // having shown one. Touching a row that does not exist would crash on a
+    // click that has nothing to do with the menu.
+    private var toggleItem: NSMenuItem?
     private var strengthItems: [NSMenuItem] = []
-    private var chromeItem: NSMenuItem!
-    private var autoPauseItem: NSMenuItem!
-    private var cursorItem: NSMenuItem!
+    private var chromeItem: NSMenuItem?
+    private var autoPauseItem: NSMenuItem?
+    private var cursorItem: NSMenuItem?
     private var cursorRadiusItems: [NSMenuItem] = []
 
     /// Blur strength as a percentage of the maximum the app ships. The engine
@@ -34,26 +40,41 @@ final class StatusItemController {
         ("200 pt", 200),
     ]
 
-    init(privacy: PrivacyController) {
+    init(privacy: PrivacyController, preferences: SettingsPreferences, openSettings: @escaping () -> Void) {
         self.privacy = privacy
+        self.preferences = preferences
+        self.openSettings = openSettings
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = Self.menuBarIcon()
             button.imagePosition = .imageLeading
+            // Handled by us rather than by assigning `statusItem.menu`: that
+            // combination pops the menu up *and* sends the action, and calling
+            // `performClick` from the action re-enters it. Owning the click lets
+            // a left click and a right click mean different things.
+            button.target = self
+            button.action = #selector(statusBarClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        buildMenu()
     }
 
-    private func buildMenu() {
+    /// Rebuilt on every open, so items that mirror state — the on/off label,
+    /// the checked strength — can never be stale.
+    private func buildMenu() -> NSMenu {
         let menu = NSMenu()
+        // Both collections are rebuilt from scratch: the menu is, and stale
+        // items would keep their state from a previous open.
+        strengthItems = []
+        cursorRadiusItems = []
 
-        toggleItem = NSMenuItem(
+        let toggle = NSMenuItem(
             title: privacy.isEnabled ? "停用隐私模糊" : "启用隐私模糊",
             action: #selector(toggle),
             keyEquivalent: ""
         )
-        toggleItem.target = self
-        menu.addItem(toggleItem)
+        toggle.target = self
+        toggleItem = toggle
+        menu.addItem(toggle)
 
         let strength = NSMenuItem(title: "模糊强度", action: nil, keyEquivalent: "")
         let sub = NSMenu()
@@ -68,32 +89,35 @@ final class StatusItemController {
         strength.submenu = sub
         menu.addItem(strength)
 
-        chromeItem = NSMenuItem(
+        let chrome = NSMenuItem(
             title: "菜单栏与 Dock 保持清晰",
             action: #selector(toggleChrome),
             keyEquivalent: ""
         )
-        chromeItem.target = self
-        chromeItem.state = privacy.keepsChromeClear ? .on : .off
-        menu.addItem(chromeItem)
+        chrome.target = self
+        chrome.state = privacy.keepsChromeClear ? .on : .off
+        chromeItem = chrome
+        menu.addItem(chrome)
 
-        autoPauseItem = NSMenuItem(
+        let autoPause = NSMenuItem(
             title: "全屏时停止模糊",
             action: #selector(toggleAutoPause),
             keyEquivalent: ""
         )
-        autoPauseItem.target = self
-        autoPauseItem.state = privacy.pausesForFullScreenApps ? .on : .off
-        menu.addItem(autoPauseItem)
+        autoPause.target = self
+        autoPause.state = privacy.pausesForFullScreenApps ? .on : .off
+        autoPauseItem = autoPause
+        menu.addItem(autoPause)
 
-        cursorItem = NSMenuItem(
+        let cursor = NSMenuItem(
             title: "鼠标周围保持清晰",
             action: #selector(toggleCursorReveal),
             keyEquivalent: ""
         )
-        cursorItem.target = self
-        cursorItem.state = privacy.revealsCursor ? .on : .off
-        menu.addItem(cursorItem)
+        cursor.target = self
+        cursor.state = privacy.revealsCursor ? .on : .off
+        cursorItem = cursor
+        menu.addItem(cursor)
 
         // Kept as its own row rather than as a submenu of the toggle: clicking
         // an item that owns a submenu is its own corner of AppKit, and this is a
@@ -113,11 +137,42 @@ final class StatusItemController {
         menu.addItem(cursorSize)
 
         menu.addItem(.separator())
+
+        let settings = NSMenuItem(title: "设置…", action: #selector(openSettingsWindow), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
 
-        statusItem.menu = menu
+        return menu
+    }
+
+    @objc private func statusBarClicked(_ sender: NSStatusBarButton) {
+        let isRightClick = NSApp.currentEvent?.type == .rightMouseUp
+        if isRightClick {
+            showMenu()
+            return
+        }
+        switch preferences.menuBarClickAction {
+        case .showMenu: showMenu()
+        case .toggleBlur: toggle()
+        case .openSettings: openSettingsWindow()
+        }
+    }
+
+    /// Pops the menu up under the icon. Deliberately not `performClick`, which
+    /// would re-enter `statusBarClicked` and pop it up again.
+    private func showMenu() {
+        let menu = buildMenu()
+        guard let button = statusItem.button else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY + 4), in: button)
+    }
+
+    @objc private func openSettingsWindow() {
+        openSettings()
     }
 
     @objc private func toggle() {
@@ -127,7 +182,7 @@ final class StatusItemController {
             privacy.enable()
         }
         privacy.persistEnabled()
-        toggleItem.title = privacy.isEnabled ? "停用隐私模糊" : "启用隐私模糊"
+        toggleItem?.title = privacy.isEnabled ? "停用隐私模糊" : "启用隐私模糊"
     }
 
     @objc private func setStrength(_ sender: NSMenuItem) {
@@ -140,12 +195,12 @@ final class StatusItemController {
 
     @objc private func toggleChrome() {
         privacy.setKeepChrome(!privacy.keepsChromeClear)
-        chromeItem.state = privacy.keepsChromeClear ? .on : .off
+        chromeItem?.state = privacy.keepsChromeClear ? .on : .off
     }
 
     @objc private func toggleAutoPause() {
         privacy.setPauseForFullScreenApps(!privacy.pausesForFullScreenApps)
-        autoPauseItem.state = privacy.pausesForFullScreenApps ? .on : .off
+        autoPauseItem?.state = privacy.pausesForFullScreenApps ? .on : .off
     }
 
     @objc private func toggleCursorReveal() {
@@ -164,7 +219,7 @@ final class StatusItemController {
 
     /// One place that reflects the setting, whichever route changed it.
     private func syncCursorItems() {
-        cursorItem.state = privacy.revealsCursor ? .on : .off
+        cursorItem?.state = privacy.revealsCursor ? .on : .off
         for item in cursorRadiusItems {
             let radius = item.representedObject as? Double
             item.state = privacy.revealsCursor && radius == privacy.currentCursorRevealRadius ? .on : .off

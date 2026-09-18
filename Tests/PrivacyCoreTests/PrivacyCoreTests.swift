@@ -349,6 +349,22 @@ final class RevealTests: XCTestCase {
         XCTAssertTrue(blurred(CGPoint(x: 700, y: 300), reveal: reveal), "outside both")
     }
 
+    /// A third shape joins the set — this app's own Settings window — and the
+    /// rule has to keep holding: the mask deals in sets, so the union has to
+    /// take all three, not just the first two it met.
+    func testOwnWindowOverlappingBothStaysSharp() {
+        let reveal = Reveal(
+            window: window,
+            cursor: disc(centre: CGPoint(x: 500, y: 300), radius: 100),
+            ownWindow: CGRect(x: 420, y: 220, width: 260, height: 200)
+        )
+        XCTAssertFalse(blurred(CGPoint(x: 500, y: 300), reveal: reveal), "in all three")
+        XCTAssertFalse(blurred(CGPoint(x: 470, y: 260), reveal: reveal), "in window and own window")
+        XCTAssertFalse(blurred(CGPoint(x: 560, y: 380), reveal: reveal), "in cursor and own window")
+        XCTAssertFalse(blurred(CGPoint(x: 640, y: 400), reveal: reveal), "in own window alone")
+        XCTAssertTrue(blurred(CGPoint(x: 850, y: 650), reveal: reveal), "outside everything")
+    }
+
     /// A disc entirely inside the window changes nothing at all — the whole point
     /// of unioning rather than punching a second hole.
     func testDiscInsideTheWindowChangesNothing() {
@@ -443,6 +459,69 @@ final class RevealTests: XCTestCase {
         )
         XCTAssertFalse(BlurOverlay.sameReveal(base, Reveal(window: window)))
         XCTAssertTrue(BlurOverlay.sameReveal(base, base))
+    }
+}
+
+/// The window that has to stay readable: this app's own.
+@MainActor
+final class OwnWindowTests: XCTestCase {
+    /// AppKit measures from the primary display's bottom-left, the window server
+    /// from its top-left. A window sitting in the primary's top-left corner is
+    /// the same rectangle in both, and is where a mistake shows up first.
+    func testWindowAtTheTopOfThePrimaryDisplay() {
+        let converted = PrivacyController.convertToCGCoordinates(
+            NSRect(x: 0, y: 800, width: 200, height: 100),
+            primaryHeight: 900
+        )
+        XCTAssertEqual(converted, CGRect(x: 0, y: 0, width: 200, height: 100))
+    }
+
+    /// A display stacked above the primary has a *negative* top-left Y; AppKit
+    /// reports it as a larger, positive Y. Getting this wrong puts the settings
+    /// window's cutout on the wrong screen entirely.
+    func testWindowOnADisplayAboveThePrimary() {
+        let converted = PrivacyController.convertToCGCoordinates(
+            NSRect(x: 0, y: 900, width: 1920, height: 1080),
+            primaryHeight: 900
+        )
+        XCTAssertEqual(converted, CGRect(x: 0, y: -1080, width: 1920, height: 1080))
+    }
+
+    /// X is untouched, including to the left of the primary, where both systems
+    /// agree it is negative.
+    func testHorizontalOriginPassesThrough() {
+        let converted = PrivacyController.convertToCGCoordinates(
+            NSRect(x: -1920, y: 0, width: 1920, height: 1080),
+            primaryHeight: 1080
+        )
+        XCTAssertEqual(converted.origin.x, -1920)
+        XCTAssertEqual(converted.origin.y, 0)
+    }
+
+    /// Nothing sensible to flip about: hand the frame back untouched rather than
+    /// inventing a height.
+    func testNoKnownPrimaryHeightKeepsTheFrame() {
+        let frame = NSRect(x: 10, y: 20, width: 30, height: 40)
+        XCTAssertEqual(PrivacyController.convertToCGCoordinates(frame, primaryHeight: 0), frame)
+    }
+}
+
+/// Searching the settings window.
+final class SettingsSearchTests: XCTestCase {
+    /// Empty search shows everything.
+    func testEmptySearchMatchesEverything() {
+        XCTAssertTrue(settingsSearchMatch("模糊 blur", search: ""))
+    }
+
+    /// Tokens are independent, and order does not matter: typing the two words
+    /// the way you think of them has to work.
+    func testEveryTokenMustAppear() {
+        XCTAssertTrue(settingsSearchMatch("菜单栏 dock 清晰", search: "dock 菜单栏"))
+        XCTAssertFalse(settingsSearchMatch("菜单栏 dock 清晰", search: "dock 全屏"))
+    }
+
+    func testMatchingIsCaseInsensitive() {
+        XCTAssertTrue(settingsSearchMatch("Screen Recording 屏幕录制", search: "screen"))
     }
 }
 

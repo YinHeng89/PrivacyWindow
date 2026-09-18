@@ -1,8 +1,14 @@
 import AppKit
+import Combine
 import CoreGraphics
 
 /// Drives the privacy blur: one overlay per screen, a display-linked cutout and
 /// a background capture loop.
+///
+/// Also the single source of truth for every setting, and therefore an
+/// `ObservableObject`: the settings window binds straight to it, so a change made
+/// in the menu shows up in the window and vice versa. The alternative — a second
+/// "settings model" mirroring this state — is how the two drift apart.
 ///
 /// Two independent timers used to run here — one chasing the cutout, one
 /// re-screenshotting — and they were the root of both complaints this rewrite
@@ -22,7 +28,7 @@ import CoreGraphics
 ///    `BlurProcessor` additionally inpaints the cutout so no bright pixel can
 ///    bleed out of it even when exclusion misses.
 @MainActor
-final class PrivacyController {
+final class PrivacyController: ObservableObject {
     private let capturer = ScreenCapturer()
     private var overlays: [CGDirectDisplayID: BlurOverlay] = [:]
 
@@ -191,6 +197,18 @@ final class PrivacyController {
     var revealsCursor: Bool { cursorReveal }
     var currentCursorRevealRadius: Double { cursorRevealRadius }
 
+    /// Whether macOS has granted Screen Recording. Read live rather than cached:
+    /// the user revokes and re-grants it while we are running, and a settings
+    /// window that insists everything is fine while nothing blurs is worse than
+    /// no settings window at all.
+    var hasScreenRecordingPermission: Bool { capturer.hasPermission }
+
+    /// Blur radius bounds, in points. Beyond the upper bound the blur has eaten
+    /// the screen entirely and every extra step only costs pixels and CPU; below
+    /// the lower one it reads as a smudge rather than privacy.
+    static let smallestBlurRadius: Double = 5
+    static let largestBlurRadius: Double = 60
+
     // MARK: - Persistence
     /// Settings are remembered across launches via `UserDefaults`, so the chosen
     /// blur strength, chrome handling, full-screen pause and the on/off state
@@ -246,6 +264,7 @@ final class PrivacyController {
     /// Turns the full-screen rule on or off.
     func setPauseForFullScreenApps(_ on: Bool) {
         guard pauseForFullScreenApps != on else { return }
+        objectWillChange.send()
         pauseForFullScreenApps = on
         UserDefaults.standard.set(on, forKey: SettingsKey.pauseFullScreen)
         settledFrames = 0
@@ -295,6 +314,7 @@ final class PrivacyController {
     /// next pass.
     func setKeepChrome(_ on: Bool) {
         guard keepChrome != on else { return }
+        objectWillChange.send()
         keepChrome = on
         UserDefaults.standard.set(on, forKey: SettingsKey.keepChrome)
         for (_, overlay) in overlays { overlay.setChromeClear(on) }
@@ -303,9 +323,11 @@ final class PrivacyController {
     }
 
     func setBlurRadius(_ radius: Double) {
-        guard blurRadius != radius else { return }
-        blurRadius = radius
-        UserDefaults.standard.set(radius, forKey: SettingsKey.blurRadius)
+        let clamped = min(max(radius, Self.smallestBlurRadius), Self.largestBlurRadius)
+        guard blurRadius != clamped else { return }
+        objectWillChange.send()
+        blurRadius = clamped
+        UserDefaults.standard.set(clamped, forKey: SettingsKey.blurRadius)
         // Wakes the capture loop: a settled loop would otherwise take up to
         // 33ms to pick up the new radius.
         settledFrames = 0
@@ -323,6 +345,7 @@ final class PrivacyController {
     /// next display-link tick by itself, since the reveal changed.
     func setRevealCursor(_ on: Bool) {
         guard cursorReveal != on else { return }
+        objectWillChange.send()
         cursorReveal = on
         UserDefaults.standard.set(on, forKey: SettingsKey.revealCursor)
     }
@@ -330,12 +353,14 @@ final class PrivacyController {
     func setCursorRevealRadius(_ radius: Double) {
         let clamped = clampedCursorRevealRadius(radius)
         guard cursorRevealRadius != clamped else { return }
+        objectWillChange.send()
         cursorRevealRadius = clamped
         UserDefaults.standard.set(clamped, forKey: SettingsKey.cursorRevealRadius)
     }
 
     func enable() {
         guard !enabled else { return }
+        objectWillChange.send()
         enabled = true
         if !capturer.hasPermission { capturer.requestPermission() }
         screenSignature = Self.currentScreenSignature()
@@ -580,6 +605,7 @@ final class PrivacyController {
 
     func disable() {
         guard enabled else { return }
+        objectWillChange.send()
         enabled = false
         generation += 1
         displayLink?.stop()
@@ -719,12 +745,17 @@ final class PrivacyController {
         // and a multi-screen setup pays for one read rather than one per
         // screen. Only read at all when it is going to be used.
         cursorPoint = cursorReveal ? Self.globalCursorPoint() : nil
+        let ownWindows = Self.ownWindowRects()
         for (id, overlay) in overlays {
             // A display the window has swallowed stops being *captured*, but
             // keeps the blur it is already showing. Emptying it instead would
             // flash the bare desktop — real, readable pixels — for the few
             // frames it takes to start capturing again.
-            overlay.commit(reveal: Reveal(window: localHole(for: id), cursor: cursorHole(for: id)))
+            overlay.commit(reveal: Reveal(
+                window: localHole(for: id),
+                cursor: cursorHole(for: id),
+                ownWindow: ownWindowHole(for: id, among: ownWindows)
+            ))
         }
     }
 
@@ -1059,6 +1090,67 @@ final class PrivacyController {
             point: cursorPoint,
             in: CGDisplayBounds(displayID),
             radius: CGFloat(cursorRevealRadius)
+        )
+    }
+
+    /// Global (top-left) rects of this app's own on-screen windows — the
+    /// Settings window, in practice.
+    ///
+    /// The overlay outranks ordinary windows, including ours, so anything we put
+    /// on screen has to be cut out of the blur or it reads as broken. This is
+    /// deliberately the only place that looks, once per frame, rather than a
+    /// call the settings window makes on itself: the window knows nothing about
+    /// displays, the overlay's geometry, or whether the effect is even running.
+    ///
+    /// Sheets are excluded (`parent == nil`). A sheet already paints above the
+    /// window it belongs to, and the permission sheet hangs off an overlay —
+    /// cutting a hole for it would punch through the blur behind its corners.
+    static func ownWindowRects() -> [CGRect] {
+        NSApp.windows
+            .filter { !($0 is OverlayWindow) && $0.parent == nil && $0.isVisible && !$0.isMiniaturized }
+            .map { convertToCGCoordinates($0.frame) }
+    }
+
+    /// The part of one of our own windows that lands on `displayID`, in
+    /// overlay-local points, or `nil` when none of them does.
+    private func ownWindowHole(for displayID: CGDirectDisplayID, among rects: [CGRect]) -> CGRect? {
+        let bounds = CGDisplayBounds(displayID)
+        for rect in rects {
+            let visible = rect.intersection(bounds)
+            guard !visible.isNull, visible.width > 1, visible.height > 1 else { continue }
+            return CGRect(
+                x: visible.minX - bounds.minX,
+                y: visible.minY - bounds.minY,
+                width: visible.width,
+                height: visible.height
+            )
+        }
+        return nil
+    }
+
+    /// Converts an AppKit window frame to the global top-left coordinates the
+    /// rest of the app already speaks (`CGWindowList`, `CGDisplayBounds`).
+    ///
+    /// AppKit measures from the **bottom-left** of the primary display with Y
+    /// growing upward; CoreGraphics measures from its **top-left**. One flip
+    /// about the primary's far edge converts between them, and X passes through
+    /// unchanged — including for displays sitting to the left, whose origins are
+    /// negative in both systems.
+    static func convertToCGCoordinates(_ frame: NSRect) -> CGRect {
+        let primaryHeight = NSScreen.screens.first { $0.frame.contains(NSPoint.zero) }?.frame.height
+            ?? NSScreen.main?.frame.height
+        guard let primaryHeight, primaryHeight > 0 else { return frame }
+        return convertToCGCoordinates(frame, primaryHeight: primaryHeight)
+    }
+
+    /// The pure form, so the flip can be checked without a screen attached.
+    static func convertToCGCoordinates(_ frame: NSRect, primaryHeight: CGFloat) -> CGRect {
+        guard primaryHeight > 0 else { return frame }
+        return CGRect(
+            x: frame.minX,
+            y: primaryHeight - frame.maxY,
+            width: frame.width,
+            height: frame.height
         )
     }
 
