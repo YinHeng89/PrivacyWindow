@@ -1,44 +1,53 @@
 #!/usr/bin/env swift
 //
-// Renders the app icon (a privacy "eye with a slash" on a gradient tile) into an
-// .iconset, which `iconutil` turns into the .icns embedded in the bundle.
+// Renders the app icon set from a source image into a .iconset, which
+// `iconutil` turns into the .icns embedded in the bundle:
 //
-//   swift Tools/generate-app-icon.swift
+//   swift Tools/generate-app-icon.swift [source.png]
 //   iconutil -c icns Resources/AppIcon.iconset -o Resources/AppIcon.icns
 //
-// The eye geometry is mirrored in `StatusItemController.eyePath(size:)`: both
-// draw the same shape into a square of a given side, so the menu bar glyph and
-// the app icon stay the same mark at different scales.
+// The artwork (logo.png) is a desktop scene: one window floating over a blurred
+// wallpaper. That is literally what this app puts on screen, so the icon is the
+// artwork itself — cropped to the window, rounded into Apple's squircle and
+// scaled to every size macOS asks for.
+//
+// The menu bar glyph is a separate mark, drawn in
+// `StatusItemController.eyePath(size:)`. A menu bar image has to be a
+// monochrome template, which this artwork cannot be, so the two are
+// deliberately not the same picture.
 
 import AppKit
 import Foundation
+
+let sourcePath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "logo.png"
+guard let source = NSImage(contentsOfFile: sourcePath) else {
+    FileHandle.standardError.write("cannot read \(sourcePath)\n".data(using: .utf8)!)
+    exit(1)
+}
 
 let iconsetDir = URL(fileURLWithPath: "Resources/AppIcon.iconset", isDirectory: true)
 try? FileManager.default.removeItem(at: iconsetDir)
 try FileManager.default.createDirectory(at: iconsetDir, withIntermediateDirectories: true)
 
-/// The almond outline of the eye, in a square of the given side length with its
-/// centre at the middle of that square.
-///
-/// Mirrored in `StatusItemController.eyePath(size:)`.
-func eyePath(size: CGFloat) -> NSBezierPath {
-    let path = NSBezierPath()
-    let left = NSPoint(x: size * 0.16, y: size * 0.50)
-    let right = NSPoint(x: size * 0.84, y: size * 0.50)
-    path.move(to: left)
-    path.curve(
-        to: right,
-        controlPoint1: NSPoint(x: size * 0.30, y: size * 0.27),
-        controlPoint2: NSPoint(x: size * 0.70, y: size * 0.27)
-    )
-    path.curve(
-        to: left,
-        controlPoint1: NSPoint(x: size * 0.70, y: size * 0.73),
-        controlPoint2: NSPoint(x: size * 0.30, y: size * 0.73)
-    )
-    path.close()
-    return path
-}
+/// The square taken out of the source, as a fraction of its short side. The
+/// scene is 1254 px with its window spanning x 25–75 % and y 27–69 %; this crop
+/// centres on the window, leaves out the menu bar and the Dock (thin strips
+/// that read as dirt once the icon is 32 px) and still fills the tile — the
+/// card ends up about 78 % of its width, which is where it starts carrying at
+/// small sizes instead of floating in the middle of a lot of wallpaper.
+let cropSide = 0.64
+
+/// Where the middle of that square sits in the source, as a fraction of its
+/// size measured from the *bottom* left — the space `NSImage.draw(in:from:)`
+/// works in. The window is the only bright, near-neutral region in the scene,
+/// so its centre can be measured rather than eyeballed; it sits slightly above
+/// the middle of the frame, and the crop follows it so the window ends up
+/// centred in the icon.
+let cropCentre = CGPoint(x: 0.50, y: 0.521)
+
+/// Apple's icon grid leaves a margin around the artwork. A tile that runs to
+/// the canvas edge reads as noticeably larger than every other icon beside it.
+let tileInset = 0.055
 
 /// Apple's icon corners are a continuous-curvature "squircle", not a plain
 /// rounded rectangle. Sampling the superellipse |x|ⁿ + |y|ⁿ = 1 at n = 5 lands
@@ -69,6 +78,15 @@ func squircle(in rect: NSRect, n: CGFloat = 5) -> NSBezierPath {
     return path
 }
 
+/// The part of the source drawn into the tile: a square around the window,
+/// clamped so it can never reach past the artwork's edge.
+func cropRect(for size: NSSize) -> NSRect {
+    let side = min(size.width, size.height) * cropSide
+    let x = min(max(0, size.width * cropCentre.x - side / 2), size.width - side)
+    let y = min(max(0, size.height * cropCentre.y - side / 2), size.height - side)
+    return NSRect(x: x, y: y, width: side, height: side)
+}
+
 func render(px: CGFloat) -> Data {
     // Drawn into a bitmap in a known colour space rather than with `lockFocus()`,
     // which inherits the current screen's profile and used to tag the icon as
@@ -91,63 +109,28 @@ func render(px: CGFloat) -> Data {
     context.shouldAntialias = true
     context.imageInterpolation = .high
 
-    // The tile is inset rather than full-bleed. Apple's icon grid leaves a
-    // margin around the artwork, and a tile touching the canvas edge reads as
-    // noticeably larger than every other icon in the dock or Finder.
-    let inset = px * 0.055
+    let inset = px * tileInset
     let tileRect = NSRect(x: inset, y: inset, width: px - inset * 2, height: px - inset * 2)
     let tile = squircle(in: tileRect)
 
-    // Three stops rather than two for a richer vertical fall-off, with the
-    // middle one set on the straight line between the ends — a middle stop that
-    // sits off that line shows up as a faint horizontal band across the tile.
-    let gradient = NSGradient(colors: [
-        NSColor(srgbRed: 0.45, green: 0.56, blue: 0.99, alpha: 1),
-        NSColor(srgbRed: 0.30, green: 0.38, blue: 0.83, alpha: 1),
-        NSColor(srgbRed: 0.15, green: 0.21, blue: 0.68, alpha: 1),
-    ])!
-    gradient.draw(in: tile, angle: 90)
-
-    // A soft highlight so the tile reads as a lit surface rather than a flat
-    // fill. It spans the whole tile instead of the top half, which is what used
-    // to leave a visible line where the highlight stopped.
+    // The artwork, cropped to the window and scaled to fill the tile. Nothing
+    // is drawn outside the squircle, so the corners stay transparent.
     context.saveGraphicsState()
     tile.addClip()
-    let gloss = NSGradient(colors: [
-        NSColor.white.withAlphaComponent(0.22),
-        NSColor.white.withAlphaComponent(0.0),
-    ])!
-    gloss.draw(in: tileRect, angle: 90)
+    source.draw(in: tileRect, from: cropRect(for: source.size), operation: .sourceOver, fraction: 1)
     context.restoreGraphicsState()
 
-    // The glyph, centred in the tile and sized to the safe area. Every
-    // proportion below is relative to the glyph's own square, so the mark is
-    // identical to the menu bar one — only scaled.
-    let side = tileRect.width * 0.56
-    var shift = AffineTransform()
-    shift.translate(x: tileRect.midX - side / 2, y: tileRect.midY - side / 2)
-
-    NSColor.white.set()
-
-    let eye = eyePath(size: side)
-    eye.lineWidth = side * 0.11
-    eye.lineCapStyle = .round
-    eye.lineJoinStyle = .round
-    eye.transform(using: shift)
-    eye.stroke()
-
-    let pupil = NSBezierPath(ovalIn: NSRect(x: side * 0.405, y: side * 0.405, width: side * 0.19, height: side * 0.19))
-    pupil.transform(using: shift)
-    pupil.fill()
-
-    // Diagonal slash across the eye — the "no peeking" mark.
-    let slash = NSBezierPath()
-    slash.move(to: NSPoint(x: side * 0.20, y: side * 0.73))
-    slash.line(to: NSPoint(x: side * 0.80, y: side * 0.27))
-    slash.lineWidth = side * 0.125
-    slash.lineCapStyle = .round
-    slash.transform(using: shift)
-    slash.stroke()
+    // A hairline just inside the edge. The scene is pale along its top, and
+    // without this the silhouette dissolves into a light background — Finder
+    // windows, a white desktop. Stroked double width from inside the clip so
+    // only the inner half survives and the tile keeps its exact size.
+    context.saveGraphicsState()
+    tile.addClip()
+    NSColor.black.withAlphaComponent(0.07).set()
+    let edge = squircle(in: tileRect)
+    edge.lineWidth = max(1, px / 256)
+    edge.stroke()
+    context.restoreGraphicsState()
 
     NSGraphicsContext.restoreGraphicsState()
 
