@@ -7,3 +7,6 @@ build/
 # Local code-signing identity (Developer ID). Contains a cert name, so keep it
 # out of the repo; ./build.sh reads it when SIGN_IDENTITY is unset.
 .sign-identity
+
+# WorkBuddy session data (memory, notes) — local only.
+.workbuddy/

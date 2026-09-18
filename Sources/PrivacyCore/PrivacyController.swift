@@ -32,14 +32,34 @@ final class PrivacyController {
     /// Serial capture loop. It is the only thing that captures, which is what
     /// keeps `ScreenCapturer`'s filter cache free of concurrent writers.
     private var captureTask: Task<Void, Never>?
-    /// Guards against two `captureOnce` passes overlapping. `stopCaptureLoop`
+    /// When the current `captureOnce` pass started, or 0 when none is running.
+    ///
+    /// Guards against two `captureOnce` passes overlapping: `stopCaptureLoop`
     /// cancels without waiting, so a pass still inside `ScreenCapturer` when the
     /// loop restarts would interleave with the next one — two rebuilds racing to
     /// store their filter, and a frame excluded against the wrong window.
-    private var captureInFlight = false
+    ///
+    /// A deadline rather than a plain flag on purpose. The `await`s inside a
+    /// pass are only ever released by ScreenCaptureKit, and there are states
+    /// where it never does: permission revoked mid-capture is the ordinary one.
+    /// A flag nobody could clear would then hold the latch down for the rest of
+    /// the session — every frame dropped at the first guard, the picture frozen,
+    /// and toggling the effect off and on no help at all, because neither path
+    /// touched the flag. Expiring instead turns a permanent hang into one bad
+    /// frame and one risky overlap, and only after nothing has come back for
+    /// far longer than a whole pass takes even at full size.
+    private var captureStartedAt: TimeInterval = 0
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
+    private var displaysWokeObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
+    /// Last tick the display link delivered, so a clock that stopped ticking
+    /// can be told apart from one that is merely quiet. See `checkClock()`.
+    private var lastTickNanos: UInt64 = 0
+    /// The independent check for exactly that. The clock cannot police itself:
+    /// everything else in the app *is* the clock, so a link that stopped leaves
+    /// nothing running to notice. One timer, once a second.
+    private var clockTimer: Timer?
     /// Debounced rebuild of the overlays after a display change. Those
     /// notifications arrive in bursts — a single resolution animation fires
     /// several — and each one used to tear down and rebuild every overlay
@@ -48,9 +68,12 @@ final class PrivacyController {
     /// Geometry of the display arrangement the overlays were last built for.
     private var screenSignature = ""
     /// The delayed "Screen Recording is not granted" warning, kept so that
-    /// toggling the effect off cancels it instead of leaving a modal to appear
-    /// over a session that no longer exists.
+    /// toggling the effect off cancels it instead of leaving it to appear over a
+    /// session that no longer exists.
     private var permissionWarnTask: Task<Void, Never>?
+    /// The permission sheet while it is up, so it outlives neither its own
+    /// dismissal nor the session it belongs to.
+    private var permissionAlert: NSAlert?
 
     private var enabled = false
     private var blurRadius: Double = 20
@@ -127,11 +150,21 @@ final class PrivacyController {
     /// display's expensive shareable-content filter every time an edge jitters
     /// across the boundary.
     private static let minimumCoverage: CGFloat = 2
+    /// Overlap (points) below which a display stops counting as covered by the
+    /// window — the release edge against `minimumCoverage`'s trigger.
+    private static let releaseCoverage: CGFloat = 0.5
     /// Longest the power pause may last before a focused window is allowed to
     /// lift it anyway. The pause exists to save power, so it must never become
     /// a state the app cannot leave: if both the wake and the unlock
     /// notifications were missed, this lets it recover on its own.
     private static let maxPowerPause: TimeInterval = 10
+    /// Longest a `captureOnce` pass may run before the next one is allowed to
+    /// start anyway. A healthy pass finishes in well under a second even with
+    /// several 5K displays to get through, so one still running after five will
+    /// not be coming back.
+    private static let captureStallLimit: TimeInterval = 5
+    /// Silence after which the display link counts as dead. See `checkClock()`.
+    private static let clockStallLimitNanos: UInt64 = 1_000_000_000
 
     var isEnabled: Bool { enabled }
     var currentBlurRadius: Double { blurRadius }
@@ -256,6 +289,7 @@ final class PrivacyController {
         refreshFocus()
 
         startDisplayLink()
+        startClockMonitor()
         startCaptureLoop()
         // If Screen Recording was never granted, the effect is silently dead.
         // Give the user a pointer to where it lives once the TCC prompt has
@@ -277,13 +311,30 @@ final class PrivacyController {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleDisplayChange() }
         }
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        let wake: @Sendable (Notification) -> Void = { [weak self] _ in
             MainActor.assumeIsolated { self?.handleDisplayChange() }
         }
+        wakeObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main,
+            using: wake
+        )
+        // Both wake routes have to be watched, because they are different
+        // events. `didWake` is the *machine* coming back; displays that slept on
+        // their own — the energy saver turning panels off, `pmset displaysleep`,
+        // a lid timer with an external display attached — announce their own
+        // return with `screensDidWake` and nothing else. Display-only sleep was
+        // therefore the hole in this: no notification arrived, the link was
+        // still the dead one, and the picture sat frozen on its last frame with
+        // the menu reporting the effect as happily running.
+        displaysWokeObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main,
+            using: wake
+        )
         startPowerObservers()
 
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -391,6 +442,14 @@ final class PrivacyController {
     /// Tells the user that nothing will blur until Screen Recording is granted.
     /// Opened from the "effect is on but doesn't work" dead end, so it goes
     /// straight to the right pane of System Settings.
+    ///
+    /// Presented as a **sheet on one of our own windows**, not with
+    /// `runModal()`. A modal run loop owns the main thread for as long as the
+    /// alert is up: display-link ticks, captures and menu actions all queue up
+    /// behind it — including the very "然后重新打开效果" the alert asks the user
+    /// to perform, which lives in the menu. This app has no ordinary window of
+    /// its own, so the overlay it is already showing is what hosts the sheet:
+    /// above the blur it is explaining, and visible by construction.
     private func warnNoScreenRecordingPermission() {
         guard !capturer.hasPermission else { return }
         let alert = NSAlert()
@@ -399,7 +458,20 @@ final class PrivacyController {
         alert.addButton(withTitle: "打开系统设置")
         alert.addButton(withTitle: "稍后")
         NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn {
+        permissionAlert = alert
+        // Prefer the display the user is looking at, which is where the
+        // explanation belongs.
+        let host = focus.flatMap { overlays[$0.displayID] }?.window ?? overlays.values.first?.window
+        guard let host else {
+            // Nothing of ours is on screen, so there is no blur to explain and
+            // no window to hang a sheet off — and blocking the main actor to say
+            // so would be the failure this avoids.
+            permissionAlert = nil
+            return
+        }
+        alert.beginSheetModal(for: host) { [weak self] response in
+            self?.permissionAlert = nil
+            guard response == .alertFirstButtonReturn else { return }
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
                 NSWorkspace.shared.open(url)
             }
@@ -462,12 +534,22 @@ final class PrivacyController {
         captureTask = nil
         permissionWarnTask?.cancel()
         permissionWarnTask = nil
+        // An effect that got switched off takes its explanation with it,
+        // otherwise the sheet would sit over a session that no longer exists.
+        if let sheet = permissionAlert?.window {
+            sheet.sheetParent?.endSheet(sheet)
+        }
+        permissionAlert = nil
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         screenObserver = nil
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         wakeObserver = nil
+        if let displaysWokeObserver { NSWorkspace.shared.notificationCenter.removeObserver(displaysWokeObserver) }
+        displaysWokeObserver = nil
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
         spaceObserver = nil
+        clockTimer?.invalidate()
+        clockTimer = nil
         displayChangeTask?.cancel()
         displayChangeTask = nil
         screenSignature = ""
@@ -480,6 +562,10 @@ final class PrivacyController {
         settledFrames = 0
         framesWithoutFocus = 0
         powerPaused = false
+        // A session that ended takes its capture lease with it: nothing is in
+        // flight any more, and the interval started by enable() must not look
+        // like a pass that has been running for minutes.
+        captureStartedAt = 0
         for observer in powerObservers { observer.center.removeObserver(observer.token) }
         powerObservers.removeAll()
     }
@@ -496,6 +582,54 @@ final class PrivacyController {
         }
         link.start()
         displayLink = link
+        // A brand new link owes us nothing yet, so the deadline for its first
+        // tick starts now — otherwise a link that never ticked once, right from
+        // construction, would look indistinguishable from a fresh one.
+        lastTickNanos = DispatchTime.now().uptimeNanoseconds
+    }
+
+    /// Watches the clock from the outside, because nothing inside the app can.
+    ///
+    /// A stopped `CVDisplayLink` is the worst failure this app has: the picture
+    /// freezes on whatever was last committed, nothing changes, and the menu
+    /// still says the effect is on — a state that looks exactly like working,
+    /// and that nothing else ever questions, since the display link *is* the
+    /// scheduled work. Wakes and display changes are covered by their
+    /// notifications, but nobody can enumerate the reasons a link may die, so
+    /// those are belt and this is braces.
+    ///
+    /// Deliberately does the least it can: it replaces the link and nothing
+    /// else, leaving the overlays, filters and capture loop of the running
+    /// session alone.
+    private func startClockMonitor() {
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkClock() }
+        }
+        // `.common` so a menu being held open does not stop the check.
+        RunLoop.main.add(timer, forMode: .common)
+        clockTimer = timer
+    }
+
+    private func checkClock() {
+        // Not gated on having a focus: with none, nothing else in the app is
+        // running either, and a dead clock then means the arrival of a window is
+        // never noticed at all — the effect stays off while the menu says it is
+        // on, with no evidence either way.
+        guard enabled, !powerPaused, !Self.isScreenLocked() else { return }
+        // Every display carrying an overlay is asleep, so there was nothing to
+        // draw and nothing to repair. Checking this is what keeps a sleeping
+        // machine from having its display link rebuilt once a second all night.
+        guard overlays.keys.contains(where: { CGDisplayIsAsleep($0) == 0 }) else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        // A live link ticks sixty times a second even when every frame decides
+        // there is nothing to do, so a full second of silence is not quiet — it
+        // is death.
+        guard now - lastTickNanos > Self.clockStallLimitNanos else { return }
+        lastTickNanos = now
+        restartDisplayLink()
+        // Whatever each display is holding was stale when the clock stopped;
+        // the throttles have no idea how long ago that was.
+        lastCaptureNanos.removeAll()
     }
 
     private func restartDisplayLink() {
@@ -509,6 +643,7 @@ final class PrivacyController {
     /// a single unit.
     private func displayLinkFired() {
         guard enabled else { return }
+        lastTickNanos = DispatchTime.now().uptimeNanoseconds
         frameIndex = (frameIndex + 1) % 1_000_000
         refreshFocus()
         // With no focus the overlays are already blank and the capture loop is
@@ -592,6 +727,16 @@ final class PrivacyController {
         }
         focus = candidate
         settledFrames = 0
+        // Start the exclusion rebuild now rather than inside the capture pass:
+        // the filter has to stop excluding the previous window and start
+        // excluding this one, which means enumerating every window on the
+        // desktop, and doing that in the middle of `captureOnce` puts the whole
+        // enumeration in front of this frame's picture.
+        capturer.prepare(
+            displayID: candidate.displayID,
+            focusWindowID: candidate.windowID,
+            keepChrome: keepChrome
+        )
     }
 
     /// Whether the focus is unchanged. Compared with a sub-point tolerance:
@@ -611,9 +756,37 @@ final class PrivacyController {
                abs(a.rect.height - b.rect.height) < 0.5
     }
 
+    /// Which of `displays` the window is really sitting on.
+    ///
+    /// Membership has hysteresis: a display joins on `minimumCoverage` and leaves
+    /// only once the overlap has fallen below `releaseCoverage`. Both edges cost
+    /// real work — membership decides whether the window is excluded from that
+    /// display's filter, so flipping rebuilds it — and a rectangle whose edge
+    /// sits exactly on a display boundary can cross `minimumCoverage` and back
+    /// every single frame, which would turn a resting desktop into a per-frame
+    /// rebuild of every shareable-content snapshot.
+    private func coveredDisplays(for rect: CGRect, among displays: Set<CGDirectDisplayID>) -> Set<CGDirectDisplayID> {
+        var covered = Set(displays.filter { Self.covers(rect, on: $0) })
+        for id in displays where lastCoveredDisplays.contains(id) && Self.touches(rect, on: id) {
+            covered.insert(id)
+        }
+        return covered
+    }
+
+    /// Whether the window is leaning on this display at all — the release edge of
+    /// the hysteresis above.
+    static func touches(_ rect: CGRect, in bounds: CGRect) -> Bool {
+        let part = rect.intersection(bounds)
+        return part.width >= Self.releaseCoverage && part.height >= Self.releaseCoverage
+    }
+
     /// Whether `rect` really sits on `displayID`, rather than just clipping it.
     static func covers(_ rect: CGRect, on displayID: CGDirectDisplayID) -> Bool {
         covers(rect, in: CGDisplayBounds(displayID))
+    }
+
+    static func touches(_ rect: CGRect, on displayID: CGDirectDisplayID) -> Bool {
+        touches(rect, in: CGDisplayBounds(displayID))
     }
 
     /// The pure form, so the threshold can be checked without a display.
@@ -645,9 +818,10 @@ final class PrivacyController {
     /// entirely when there is no focused window (nothing to blur).
     private func captureOnce() async {
         guard enabled, let focus else { return }
-        guard !captureInFlight else { return }
-        captureInFlight = true
-        defer { captureInFlight = false }
+        let startTime = Date.timeIntervalSinceReferenceDate
+        guard captureStartedAt == 0 || startTime - captureStartedAt > Self.captureStallLimit else { return }
+        captureStartedAt = startTime
+        defer { captureStartedAt = 0 }
 
         let generation = self.generation
         let snapshot = focus
@@ -663,10 +837,18 @@ final class PrivacyController {
         // displays involved are holding a picture that no longer matches the
         // cutout, so their throttling has to be dropped or the seam shows a
         // stale strip for up to a refresh period.
-        let covered = Set(targets.keys.filter { Self.covers(snapshot.rect, on: $0) })
+        let covered = coveredDisplays(for: snapshot.rect, among: Set(targets.keys))
         if covered != lastCoveredDisplays {
+            let rejoinedOrLeft = covered.symmetricDifference(lastCoveredDisplays)
             lastCoveredDisplays = covered
-            lastCaptureNanos.removeAll()
+            // Only the displays that joined or left have a stale relationship to
+            // the window. Clearing every throttle instead meant that a window
+            // parked with its edge on a display boundary — which is where snapped
+            // and maximised windows live, and where their rectangles jitter by
+            // fractions of a point — put *every* display back at full rate on
+            // every one of those flips: a CPU spike and a visible refresh pattern
+            // on secondary displays, for nothing.
+            for id in rejoinedOrLeft { lastCaptureNanos.removeValue(forKey: id) }
         }
 
         let now = DispatchTime.now().uptimeNanoseconds

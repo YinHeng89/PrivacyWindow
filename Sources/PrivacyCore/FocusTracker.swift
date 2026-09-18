@@ -32,8 +32,13 @@ struct FocusedWindow: Equatable {
 
 @MainActor
 enum FocusTracker {
-    /// Windows smaller than this are helper slivers (1px drag proxies,
-    /// tooltips); ignoring them lets a real window behind them be picked.
+    /// Below this size a window is assumed to be a helper sliver (1px drag
+    /// proxies, tooltips) rather than somewhere anybody is working.
+    ///
+    /// A *preference*, not a rule — see `preferred(_:frontmostPID:)`:
+    /// preferring bigger windows keeps a sliver from taking the cutout from the
+    /// real window behind it, while still letting a genuinely small window have
+    /// one when it is all the desktop has.
     private static let minimumSize = CGSize(width: 120, height: 80)
 
     /// Highest window layer a focus candidate may sit on: utility panels (19),
@@ -46,6 +51,16 @@ enum FocusTracker {
     /// The lowest layer only system dialogs use: modal panels (8). Anything at
     /// or above this is in front because something deliberately put it there.
     private static let systemDialogLayerMinimum = 8 // kCGModalPanelWindowLevel
+
+    /// Where the *utility* band starts (19, `kCGUtilityWindowLevel`) — the
+    /// floating tool panels applications park on screen permanently. The dialog
+    /// band stops here: below `systemDialogLayerMinimum … utilityLayerMinimum`
+    /// sits the stuff raised on purpose to interrupt you, while 19 is where apps
+    /// put things that merely *stay* in front. A utility window belonging to a
+    /// background app has no claim on the cutout while the user is working in
+    /// another app, so it does not outrank the frontmost app's own windows — it
+    /// still counts as a last resort, exactly as it always has.
+    private static let utilityLayerMinimum = 19
 
     /// Whether a window sitting on `layer` is allowed to take the focus.
     ///
@@ -80,20 +95,41 @@ enum FocusTracker {
     /// the app as full-screen either.
     private static let barWidthFraction: CGFloat = 0.8
     private static let barHeightFraction: CGFloat = 0.3
+    /// How close (points) a bar has to sit to a display edge to count as one.
+    private static let barEdgeTolerance: CGFloat = 2
 
-    /// Walks the on-screen window list front-to-back and returns the first
-    /// ordinary window belonging to another app. `nil` only when the desktop
-    /// has no qualifying window at all, in which case the screen stays sharp.
-    ///
-    /// Done in two passes so a background app's always-on-top panel (a floating
-    /// HUD parked in the `1…7` decoration band) cannot hijack the focus
-    /// forever: pass 1 only considers windows owned by the frontmost
-    /// application, pass 2 falls back to the full front-to-back scan when that
-    /// app has no eligible window of its own (the desktop, a menu-bar app, or a
-    /// dialog shown by a background agent that never activates itself). Both
-    /// passes take system dialogs — layer 8 and up — from any app, because a
-    /// modal panel is in front precisely because it is asking the user
-    /// something.
+    static func isBar(_ rect: CGRect, on display: CGRect) -> Bool {
+        let wide = rect.width >= display.width * barWidthFraction
+        let short = rect.height <= display.height * barHeightFraction
+        guard wide, short else { return false }
+        // Shape alone is not enough. Both thresholds are pure proportions, so on
+        // a wide display — anything from a 27" panel to a 5120px ultrawide — a
+        // perfectly ordinary window dragged into the corner reads exactly like
+        // Chrome's toolbar: 80% wide, a fifth of the height. Taking it for chrome
+        // pushes the cutout onto whatever window happens to be behind it.
+        //
+        // Real bars are chrome, and chrome is *glued to an edge of the display*:
+        // the slide-down toolbar sits flush with the very top of the screen.
+        // Requiring that turns this into a test a window has to deliberately
+        // satisfy, instead of one any wide short rectangle trips.
+        let flushWithTop = abs(rect.minY - display.minY) <= barEdgeTolerance
+        let flushWithBottom = abs(rect.maxY - display.maxY) <= barEdgeTolerance
+        return flushWithTop || flushWithBottom
+    }
+
+    /// A window `decode` accepted, together with the only other fact the
+    /// selection policy needs — the layer it sits on. Kept out of
+    /// `FocusedWindow` because nothing downstream cares about the layer, and so
+    /// the policy below can be checked without asking the window server for
+    /// anything.
+    struct FocusCandidate {
+        let window: FocusedWindow
+        let layer: Int
+    }
+
+    /// Walks the on-screen window list and picks the one that gets the cutout.
+    /// `nil` only when the desktop has no qualifying window at all, in which
+    /// case the screen stays sharp.
     static func focusedWindow() -> FocusedWindow? {
         let selfPID = ProcessInfo.processInfo.processIdentifier
         let options = CGWindowListOption([.excludeDesktopElements, .optionOnScreenOnly])
@@ -101,30 +137,80 @@ enum FocusTracker {
             return nil
         }
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let candidates = list.compactMap { decode($0, selfPID: selfPID, frontmostPID: frontmostPID) }
 
-        // Pass 1 — the frontmost app only. This is what stops a stray HUD from a
-        // background app (which may sit visually in front of everything) from
-        // being reported as the focus. Quick Look stays covered because the
-        // preview panel belongs to the frontmost app itself.
-        if let frontmostPID, frontmostPID != selfPID {
-            for info in list {
-                if let focus = decode(info, selfPID: selfPID, frontmostPID: frontmostPID), focus.pid == frontmostPID {
-                    return focus
-                }
+        // The size threshold is a preference, not a rule — see `preferred`.
+        return preferred(candidates, frontmostPID: frontmostPID)
+    }
+
+    /// `select` over the sizeable candidates, widening to every candidate once
+    /// none of them qualified. Helper slivers — 1px drag proxies, tooltips —
+    /// must not take the cutout from the real window behind them, but rejecting
+    /// small windows outright would leave a genuinely small one the user *is*
+    /// working in (a mini player, a narrow tool palette below `minimumSize`)
+    /// with nothing eligible at all, which drops every overlay and shows the
+    /// whole desktop sharp. Both halves of that live here rather than in
+    /// `focusedWindow` so the policy can be checked without a window server.
+    static func preferred(_ candidates: [FocusCandidate], frontmostPID: pid_t?) -> FocusedWindow? {
+        select(candidates, frontmostPID: frontmostPID)
+            ?? select(candidates, frontmostPID: frontmostPID, allowSmall: true)
+    }
+
+    /// Chooses between the accepted windows. `candidates` is front-to-back —
+    /// the order `CGWindowList` enumerates in, which is the same order the
+    /// windows are stacked in — so inside one tier the first match really is the
+    /// topmost window of that kind.
+    ///
+    /// The tiers themselves are ordered by *entitlement*, not by stacking, and
+    /// getting that order wrong is the whole class of bug here:
+    ///
+    /// 1. **The dialog band (8…18), owned by anybody.** These are in front
+    ///    because somebody deliberately put them there, and the frontmost
+    ///    application is very often *not* the one asking: a background agent can
+    ///    raise a modal panel without ever activating itself, in which case it
+    ///    stays inactive while its dialog covers everything. Ranking this tier
+    ///    first is what gates it: scanning for the frontmost app's windows first
+    ///    returned the window *behind* the dialog, leaving the hole parked there
+    ///    while the thing the user is answering stayed blurred — the same
+    ///    failure as connecting to a server, from the other direction.
+    /// 2. **The frontmost app's own windows.** This is what stops another app's
+    ///    always-on-top decoration (a desktop pet, a lyrics HUD — see
+    ///    `isEligibleLayer`) from owning the cutout while the user works in
+    ///    something else. Stacked utility panels from background apps fall past
+    ///    this tier deliberately: being visible is not the same as being asked
+    ///    about.
+    /// 3. **Anything else eligible** — mostly layer 0 windows belonging to other
+    ///    apps, which is how the desktop, a menu-bar app and a panel raised by
+    ///    an inactive agent get a hole at all. If literally nothing qualifies
+    ///    the focus stays `nil` and the screen stays sharp: for this app, losing
+    ///    the blur entirely is the one failure direction worth any amount of
+    ///    care.
+    ///
+    /// `allowSmall` admits windows below `minimumSize`; see `preferred`.
+    static func select(
+        _ candidates: [FocusCandidate],
+        frontmostPID: pid_t?,
+        allowSmall: Bool = false
+    ) -> FocusedWindow? {
+        var dialog: FocusedWindow?
+        var frontmost: FocusedWindow?
+        var fallback: FocusedWindow?
+        for candidate in candidates {
+            let window = candidate.window
+            let bigEnough = allowSmall ||
+                (window.rect.width >= minimumSize.width && window.rect.height >= minimumSize.height)
+            guard bigEnough else { continue }
+            if dialog == nil,
+               candidate.layer >= systemDialogLayerMinimum,
+               candidate.layer < utilityLayerMinimum {
+                dialog = window
+            } else if frontmost == nil, window.pid == frontmostPID {
+                frontmost = window
+            } else if fallback == nil {
+                fallback = window
             }
         }
-        // Pass 2 — the full front-to-back scan, used when the active app has no
-        // eligible window of its own. Decoration-band windows only count here
-        // when they are the frontmost app's, which is what keeps a desktop pet
-        // or a lyrics HUD belonging to some other app from becoming the cutout;
-        // system dialogs pass regardless of owner, so a modal panel put up by an
-        // agent that never activates itself still gets the hole. If literally
-        // nothing qualifies the focus is left nil and the desktop stays sharp —
-        // the safe direction.
-        for info in list {
-            if let focus = decode(info, selfPID: selfPID, frontmostPID: frontmostPID) { return focus }
-        }
-        return nil
+        return dialog ?? frontmost ?? fallback
     }
 
     /// Re-reads just the window we are already tracking.
@@ -141,26 +227,40 @@ enum FocusTracker {
         let ids = [NSNumber(value: focus.windowID)] as CFArray
         guard let list = CGWindowListCreateDescriptionFromArray(ids) as? [[String: Any]],
               let entry = list.first else { return nil }
+        // Window ids get recycled, and the description for a recycled id
+        // describes somebody else's window — plausible enough that this asks
+        // whose window it really is before trusting it. Without this the
+        // cutout could be welded, for the rest of the session, to a window that
+        // merely inherited the id of the one that closed.
+        guard let ownerPID = entry[kCGWindowOwnerPID as String] as? Int,
+              pid_t(ownerPID) == focus.pid else { return nil }
         // The window is already the one being tracked, so it counts as trusted
-        // for the decoration band: re-deciding that here could reject it and drop
-        // the focus, which clears every overlay for a frame. Only a genuinely
+        // for the decoration band *and* for its size: re-deciding either here
+        // could reject the very window it has been following — as happened to
+        // any window dragged a little below `minimumSize` — clearing every
+        // overlay mid-drag and leaving the whole desktop sharp. Only a genuinely
         // gone or minimized window may return nil.
         return decode(
             entry,
             selfPID: ProcessInfo.processInfo.processIdentifier,
             frontmostPID: focus.pid
-        )
+        )?.window
     }
 
-    /// Turns one `CGWindowList` entry into a `FocusedWindow`, or `nil` when the
-    /// entry is not an eligible focus candidate. `frontmostPID` is used only to
+    /// Turns one `CGWindowList` entry into a candidate for the focus, or `nil`
+    /// when the entry is not eligible at all. `frontmostPID` is used only to
     /// decide whether a window in the `1…7` decoration band counts (see
     /// `isEligibleLayer`).
+    ///
+    /// Deliberately says nothing about size: how much of the window there is
+    /// decides nothing about whether it is eligible, and answering it here would
+    /// take the decision away from `select`, which needs it to fall back rather
+    /// than to reject.
     private static func decode(
         _ info: [String: Any],
         selfPID: pid_t,
         frontmostPID: pid_t?
-    ) -> FocusedWindow? {
+    ) -> FocusCandidate? {
         guard let ownerPID = info[kCGWindowOwnerPID as String] as? Int, ownerPID != selfPID else { return nil }
         guard let windowID = info[kCGWindowNumber as String] as? Int else { return nil }
         // Layer 0 = ordinary windows. Higher layers hold Quick Look previews,
@@ -179,7 +279,6 @@ enum FocusTracker {
               let w = (bounds["Width"] as? NSNumber)?.doubleValue,
               let h = (bounds["Height"] as? NSNumber)?.doubleValue else { return nil }
         let rect = CGRect(x: x, y: y, width: w, height: h)
-        guard rect.width >= minimumSize.width, rect.height >= minimumSize.height else { return nil }
 
         // Which display the window belongs to is decided by *overlap*, not by
         // where its centre lands. A window dragged more than half off an edge
@@ -212,15 +311,15 @@ enum FocusTracker {
         // against a single display would condemn ordinary wide windows.
         if covering <= 1, isBar(rect, on: display) { return nil }
 
-        return FocusedWindow(
-            windowID: CGWindowID(windowID),
-            pid: pid_t(ownerPID),
-            rect: rect,
-            displayID: displayID
+        return FocusCandidate(
+            window: FocusedWindow(
+                windowID: CGWindowID(windowID),
+                pid: pid_t(ownerPID),
+                rect: rect,
+                displayID: displayID
+            ),
+            layer: layer
         )
     }
 
-    static func isBar(_ rect: CGRect, on display: CGRect) -> Bool {
-        rect.width >= display.width * barWidthFraction && rect.height <= display.height * barHeightFraction
-    }
 }

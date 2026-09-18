@@ -41,7 +41,32 @@ final class ScreenCapturer {
     /// Display → time until which downscaling is disabled for it.
     private var downscaleDisabledUntil: [CGDirectDisplayID: TimeInterval] = [:]
 
+    /// Pixels per point the capture should ask for.
+    ///
+    /// `divisor` is how much the display's own pixel grid is being shrunk by, so
+    /// the answer is just `pointPixelScale / divisor` — which, `divisor` being at
+    /// least 1, is never above the display's own scale, i.e. never an upscale.
+    /// The `min(1, …)` clamp that used to sit here cost every Retina panel its
+    /// downscaling target: on a 2560px-wide 2x display the divisor comes out at
+    /// 1.6 and the honest answer is 1.25, but the clamp asked for 1.0 and got
+    /// 1280px instead of the intended 1600px. A quarter of the resolution of the
+    /// background silently thrown away, and the whole target-capture-width
+    /// arithmetic below it quietly doing nothing.
+    nonisolated static func requestedPixelsPerPoint(pointPixelScale: CGFloat, divisor: CGFloat) -> CGFloat {
+        guard divisor > 0 else { return pointPixelScale }
+        return pointPixelScale / divisor
+    }
+
     private var filters: [CGDirectDisplayID: (exclusion: Exclusion?, filter: SCContentFilter)] = [:]
+    /// Rebuilds already under way, so a focus moving every frame cannot stack a
+    /// queue of them up. Keyed by display: each has at most one in flight, and
+    /// starting another cancels the one before it, so what lands in the cache is
+    /// always the answer to the newest request rather than to whichever one
+    /// happened to finish last.
+    private var preparing: [CGDirectDisplayID: (generation: UInt64, task: Task<Void, Never>)] = [:]
+    /// Ticks once per `prepare`, so a rebuild in flight can tell whether it was
+    /// superseded while it was suspended.
+    private var prepareGeneration: UInt64 = 0
     /// Quiet period after a failure, per display. Without it a persistently
     /// failing capture — no Screen Recording permission, a display that just
     /// went away — turns the capture loop into a tight retry storm, rebuilding
@@ -124,10 +149,11 @@ final class ScreenCapturer {
         // Never upsample (a display narrower than the target stays native), but
         // otherwise take the full downscale — `divisor` is derived from the
         // target width, so this lands at `targetCaptureWidth` on any panel wider
-        // than it. The previous `max(1, …)` clamped the divisor result back to
-        // 1.0, which silently disabled downscaling on every Retina display and
-        // made the 5K readback five times heavier than intended.
-        let requested = min(1, CGFloat(filter.pointPixelScale) / divisor)
+        // than it.
+        let requested = Self.requestedPixelsPerPoint(
+            pointPixelScale: CGFloat(filter.pointPixelScale),
+            divisor: divisor
+        )
         let configuration = SCStreamConfiguration()
         configuration.width = max(1, Int(filter.contentRect.width * requested))
         configuration.height = max(1, Int(filter.contentRect.height * requested))
@@ -167,6 +193,41 @@ final class ScreenCapturer {
             registerFailure(displayID)
             return nil
         }
+    }
+
+    /// Builds `displayID`'s filter for an upcoming focus change, before the
+    /// capture loop needs it.
+    ///
+    /// A focus change changes what has to be excluded, and building a filter
+    /// means enumerating every window on the desktop — milliseconds the capture
+    /// pass would otherwise spend *waiting*, ahead of the frame it was about to
+    /// take, which delays that display's whole picture. Starting it the moment
+    /// the focus changes moves that cost off the critical path: `capture` finds
+    /// the answer already waiting and goes straight to asking for a frame.
+    ///
+    /// It is a pure optimisation — `capture` still builds whatever is missing,
+    /// exactly as before — so landing late, or being overtaken by a newer
+    /// request, costs one frame rather than correctness.
+    func prepare(displayID: CGDirectDisplayID, focusWindowID: CGWindowID?, keepChrome: Bool) {
+        let exclusion = Exclusion(focusWindowID: focusWindowID, keepChrome: keepChrome)
+        // Nothing changed. This is the common case during a drag: the tracked
+        // window is the same window every frame, so its exclusion has not moved
+        // either — and rebuilding per frame would be exactly the waste this
+        // exists to avoid.
+        guard filters[displayID]?.exclusion != exclusion else { return }
+        preparing[displayID]?.task.cancel()
+        prepareGeneration += 1
+        let generation = prepareGeneration
+        let task = Task { [weak self] in
+            await self?.rebuild(displayID: displayID, excluding: exclusion)
+            guard let self else { return }
+            // Only retire the slot if this is still the request that owns it; a
+            // newer one may have replaced it while this was suspended.
+            if self.preparing[displayID]?.generation == generation {
+                self.preparing[displayID] = nil
+            }
+        }
+        preparing[displayID] = (generation, task)
     }
 
     private func isBackingOff(_ displayID: CGDirectDisplayID) -> Bool {
