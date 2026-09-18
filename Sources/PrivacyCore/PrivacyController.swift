@@ -82,7 +82,16 @@ final class PrivacyController {
     /// default: they are the two things you reach for while the effect is
     /// running, and blurring them buys no privacy.
     private var keepChrome = true
-    /// Drop the blur on a display whose focused window is full-screen.
+    /// Keep a disc of the screen sharp around the cursor, so the pointer's own
+    /// surroundings stay readable without turning the effect off. Off by
+    /// default: a circle appearing under someone's pointer is a surprise to
+    /// anyone who never asked for it, and surprising people with liability
+    /// is the one thing this app must not do.
+    private var cursorReveal = false
+    /// Radius (points) of that disc. Deliberately generous for something meant
+    /// to be looked *at*: enough that what the pointer is approaching is legible
+    /// before it arrives.
+    private var cursorRevealRadius: Double = 120
     private var pauseForFullScreenApps = true
     /// Set while the machine is asleep, locked or running a screensaver.
     private var powerPaused = false
@@ -100,6 +109,9 @@ final class PrivacyController {
     private var powerObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
 
     private var focus: FocusedWindow?
+    /// Where the pointer was when the current frame started, in the global
+    /// top-left space. Sampled once per frame — see `displayLinkFired`.
+    private var cursorPoint: CGPoint?
     /// Consecutive frames whose focus has not changed. Once the desktop has
     /// been quiet for a while the expensive work is throttled back; the frame
     /// anything moves again it goes back to full rate.
@@ -163,6 +175,12 @@ final class PrivacyController {
     /// several 5K displays to get through, so one still running after five will
     /// not be coming back.
     private static let captureStallLimit: TimeInterval = 5
+    /// Bounds the cursor disc, in points. Anything tighter than the lower bound
+    /// is a dot rather than something to read through; the upper one keeps a
+    /// menu choice from covering a display end to end and quietly disabling the
+    /// app.
+    private static let smallestCursorRevealRadius: Double = 20
+    private static let largestCursorRevealRadius: Double = 400
     /// Silence after which the display link counts as dead. See `checkClock()`.
     private static let clockStallLimitNanos: UInt64 = 1_000_000_000
 
@@ -170,6 +188,8 @@ final class PrivacyController {
     var currentBlurRadius: Double { blurRadius }
     var keepsChromeClear: Bool { keepChrome }
     var pausesForFullScreenApps: Bool { pauseForFullScreenApps }
+    var revealsCursor: Bool { cursorReveal }
+    var currentCursorRevealRadius: Double { cursorRevealRadius }
 
     // MARK: - Persistence
     /// Settings are remembered across launches via `UserDefaults`, so the chosen
@@ -180,6 +200,8 @@ final class PrivacyController {
         static let keepChrome = "keepChrome"
         static let pauseFullScreen = "pauseFullScreen"
         static let enabled = "enabled"
+        static let revealCursor = "revealCursor"
+        static let cursorRevealRadius = "cursorRevealRadius"
     }
 
     /// Loads any previously saved settings. Called once at launch, before the
@@ -195,6 +217,15 @@ final class PrivacyController {
         }
         if defaults.object(forKey: SettingsKey.pauseFullScreen) != nil {
             pauseForFullScreenApps = defaults.bool(forKey: SettingsKey.pauseFullScreen)
+        }
+        // The one setting that is off until asked for.
+        if defaults.object(forKey: SettingsKey.revealCursor) != nil {
+            cursorReveal = defaults.bool(forKey: SettingsKey.revealCursor)
+        }
+        if defaults.object(forKey: SettingsKey.cursorRevealRadius) != nil {
+            cursorRevealRadius = clampedCursorRevealRadius(
+                defaults.double(forKey: SettingsKey.cursorRevealRadius)
+            )
         }
         // Auto-resume the effect if it was on at quit. The on/off flag is
         // persisted from the menu toggle only, never from the quit/terminate
@@ -278,6 +309,29 @@ final class PrivacyController {
         // Wakes the capture loop: a settled loop would otherwise take up to
         // 33ms to pick up the new radius.
         settledFrames = 0
+    }
+
+    private func clampedCursorRevealRadius(_ radius: Double) -> Double {
+        min(max(radius, Self.smallestCursorRevealRadius), Self.largestCursorRevealRadius)
+    }
+
+    /// Turns the cursor's clear disc on or off.
+    ///
+    /// Nothing about this needs a new picture — the disc is a hole in the blur,
+    /// and the pixels under it are the real ones — so the capture loop is left
+    /// to run at whatever rate it already settled on. It wakes the mask on the
+    /// next display-link tick by itself, since the reveal changed.
+    func setRevealCursor(_ on: Bool) {
+        guard cursorReveal != on else { return }
+        cursorReveal = on
+        UserDefaults.standard.set(on, forKey: SettingsKey.revealCursor)
+    }
+
+    func setCursorRevealRadius(_ radius: Double) {
+        let clamped = clampedCursorRevealRadius(radius)
+        guard cursorRevealRadius != clamped else { return }
+        cursorRevealRadius = clamped
+        UserDefaults.standard.set(clamped, forKey: SettingsKey.cursorRevealRadius)
     }
 
     func enable() {
@@ -562,6 +616,10 @@ final class PrivacyController {
         settledFrames = 0
         framesWithoutFocus = 0
         powerPaused = false
+        // No frame is in flight, so the last sampled position goes with it: it
+        // is a reading of a moment, and re-enabling must not resurrect a disc
+        // wherever the pointer happened to be minutes ago.
+        cursorPoint = nil
         // A session that ended takes its capture lease with it: nothing is in
         // flight any more, and the interval started by enable() must not look
         // like a pass that has been running for minutes.
@@ -647,14 +705,26 @@ final class PrivacyController {
         frameIndex = (frameIndex + 1) % 1_000_000
         refreshFocus()
         // With no focus the overlays are already blank and the capture loop is
-        // stopped; there is nothing to update until a window comes back.
-        guard focus != nil else { return }
+        // stopped; there is nothing to update until a window comes back. The
+        // cursor disc dies with it too — an empty desktop is already entirely
+        // sharp, so there would be nothing to reveal, and keeping it alive here
+        // would mean paying for the read (and for sixty mask rebuilds a second)
+        // for a benefit nobody can see.
+        guard focus != nil else {
+            cursorPoint = nil
+            return
+        }
+        // Sampled once for the whole frame, not once per overlay: every display
+        // then agrees about where the pointer was when this frame was built,
+        // and a multi-screen setup pays for one read rather than one per
+        // screen. Only read at all when it is going to be used.
+        cursorPoint = cursorReveal ? Self.globalCursorPoint() : nil
         for (id, overlay) in overlays {
             // A display the window has swallowed stops being *captured*, but
             // keeps the blur it is already showing. Emptying it instead would
             // flash the bare desktop — real, readable pixels — for the few
             // frames it takes to start capturing again.
-            overlay.commit(hole: localHole(for: id))
+            overlay.commit(reveal: Reveal(window: localHole(for: id), cursor: cursorHole(for: id)))
         }
     }
 
@@ -908,8 +978,8 @@ final class PrivacyController {
     // MARK: - Geometry
 
     /// The overlay-local hole in **points, top-left origin** — what
-    /// `BlurOverlay.commit(hole:)` expects. `nil` when the focused window is not
-    /// on `displayID`.
+    /// `Reveal.window` expects. `nil` when the focused window is not on
+    /// `displayID`.
     private func localHole(for displayID: CGDirectDisplayID) -> CGRect? {
         guard let focus else { return nil }
         // `CGWindowList` coordinates and `CGDisplayBounds` share the same
@@ -927,6 +997,69 @@ final class PrivacyController {
         let visible = local.intersection(CGRect(origin: .zero, size: bounds.size))
         guard !visible.isNull else { return nil }
         return visible
+    }
+
+    // MARK: - Cursor
+
+    /// Where the pointer is right now, in global **top-left** coordinates — the
+    /// same space as `CGDisplayBounds` and the window list, so a display's
+    /// origin can simply be subtracted.
+    ///
+    /// Read from `CGEvent` rather than from `NSEvent.mouseLocation`, which is
+    /// bottom-left origin and would ask for a conversion through the primary
+    /// display's height first; and sampled per frame rather than through a
+    /// global event monitor, because a monitor does not know about frames. Its
+    /// callbacks either have to be stashed somewhere until the next tick — the
+    /// same state, plus a detour — or they arrive faster than the compositor can
+    /// take them.
+    ///
+    /// `nil` is not something to paper over. It means the pointer's location is
+    /// genuinely unknown, and guessing the last one would park a sharp disc over
+    /// the wrong pixels instead of revealing the right ones. Nobody should ever
+    /// get a clear view of anything by accident.
+    private static func globalCursorPoint() -> CGPoint? {
+        CGEvent(source: nil)?.location
+    }
+
+    /// The disc of sharpness around the cursor, in overlay-local top-left
+    /// points, for the display whose global rect is `bounds`.
+    ///
+    /// Pure so that the interesting part — "which display owns this pointer,
+    /// and how big is the disc" — can be checked without a display attached.
+    ///
+    /// Only drawn on the display the cursor is actually on. Every overlay is
+    /// exactly one screen with its own layer tree, so nothing shared exists: a
+    /// disc reaching across a seam cannot be clipped by its neighbour, which has
+    /// no idea it happened.
+    static func cursorHole(point: CGPoint?, in bounds: CGRect, radius: CGFloat) -> CGRect? {
+        guard let point, radius > 0, bounds.width > 0, bounds.height > 0 else { return nil }
+        // Our own comparison, not `CGRect.contains`: which edges count as inside
+        // there is a system implementation detail, and this decides *which
+        // screen draws*. Choosing [min, max) makes the halves exclusive, so a
+        // cursor sitting exactly on a seam belongs to one display rather than to
+        // both — and so every position belongs to exactly one.
+        guard point.x >= bounds.minX, point.x < bounds.maxX,
+              point.y >= bounds.minY, point.y < bounds.maxY else { return nil }
+        let local = CGPoint(x: point.x - bounds.origin.x, y: point.y - bounds.origin.y)
+        // Left deliberately un-clipped. See `Reveal.cursor`: clipping this to
+        // the display would turn the circle near an edge into an ellipse whose
+        // missing arc is replaced by a visibly flatter curve.
+        return CGRect(
+            x: local.x - radius,
+            y: local.y - radius,
+            width: radius * 2,
+            height: radius * 2
+        )
+    }
+
+    /// The cursor's disc for `displayID` this frame, or `nil` when there is none
+    /// to draw.
+    private func cursorHole(for displayID: CGDirectDisplayID) -> CGRect? {
+        Self.cursorHole(
+            point: cursorPoint,
+            in: CGDisplayBounds(displayID),
+            radius: CGFloat(cursorRevealRadius)
+        )
     }
 
     /// The rectangle `BlurProcessor` should paint over, in **image pixels,

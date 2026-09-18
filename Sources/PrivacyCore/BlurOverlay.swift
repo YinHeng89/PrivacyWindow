@@ -9,10 +9,40 @@ final class OverlayWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
+/// What one overlay leaves sharp for one frame.
+///
+/// Named for what it does rather than for what it is: an overlay does not have
+/// "a hole" any more, it has a *set* of places the blur is not allowed to cover.
+/// Giving it a third member — around the text caret, say — means a field here
+/// and nothing else, because the mask already deals in sets.
+///
+/// Coordinates are overlay-local points with a top-left origin, the same space
+/// as `CGWindowList` and `CGDisplayBounds`.
+struct Reveal: Equatable {
+    /// The focused window's cutout.
+    ///
+    /// This is the only member the edge shadow is drawn around, and that is not
+    /// an oversight: the shadow stands in for the drop shadow a window loses by
+    /// being excluded from the screenshot. A disc following the cursor is
+    /// standing in for nothing, so tracing one would drag a grey ring around
+    /// every mouse movement.
+    var window: CGRect?
+    /// The disc around the cursor, as its **bounding square**.
+    ///
+    /// The mask inscribes an ellipse in it, so the box has to stay square even
+    /// when half the disc lies off this display — clamping it to the screen
+    /// would squash the near edge of the circle into a straight-ish line. The
+    /// overlay's own bounds do whatever clipping there is left to do.
+    var cursor: CGRect?
+
+    /// Nothing revealed: the whole screen stays blurred.
+    static let none = Reveal()
+}
+
 /// A full-screen blurred picture of one display, with a transparent rectangular
 /// hole punched where the focused window sits.
 ///
-/// Content and cutout are deliberately committed together by `commit(hole:)`
+/// Content and cutout are deliberately committed together by `commit(reveal:)`
 /// from a single display-link tick. The old design updated the picture and the
 /// mask from two independent timers, so the layer tree was routinely committed
 /// half-updated: a fresh picture with a stale hole, or the other way round.
@@ -43,9 +73,9 @@ final class BlurOverlay {
     /// on top of one; drawing it before would leave a bare rounded outline
     /// floating over the sharp desktop during the first frames after enabling.
     private var hasPicture = false
-    /// The hole last pushed to the mask, so an unchanged cutout costs nothing.
-    private var committedHole: CGRect?
-    private var hasCommittedHole = false
+    /// The reveal last pushed to the mask, so an unchanged one costs nothing.
+    private var committedReveal: Reveal?
+    private var hasCommittedReveal = false
 
     /// - Parameter animateAppearance: fades the overlay in. Only right when
     ///   the effect is being switched on; a display change replaces the
@@ -116,7 +146,7 @@ final class BlurOverlay {
     var cornerRadius: CGFloat = 18
 
     /// Stages a freshly blurred picture. It is not shown until the next
-    /// `commit(hole:)`, which pairs it with the cutout position of that very
+    /// `commit(reveal:)`, which pairs it with the revealed shapes of that very
     /// frame.
     func setPicture(_ frame: BlurredFrame) {
         pendingPicture = frame.image
@@ -127,15 +157,22 @@ final class BlurOverlay {
         }
     }
 
-    /// Commits the pending picture and the cutout in one transaction.
+    /// Commits the pending picture and the revealed shapes in one transaction.
     ///
     /// Called once per display link — i.e. in lockstep with the compositor — so
-    /// the hole can never show a frame ahead of (or behind) the picture.
-    /// `hole` is a top-left local rectangle (in points); `nil` or empty blurs
-    /// the whole screen.
-    func commit(hole: NSRect?) {
-        let holeChanged = !hasCommittedHole || !Self.sameHole(committedHole, hole)
-        guard holeChanged || pendingPicture != nil else { return }
+    /// nothing here can show a frame ahead of (or behind) the picture. Both
+    /// members of `reveal` are overlay-local top-left rectangles (in points);
+    /// empty ones are ignored.
+    func commit(reveal: Reveal) {
+        // One comparison covers the whole set, so a resting desktop and a still
+        // cursor cost nothing at all — this is what keeps a second revealed
+        // shape from quietly turning into sixty path rebuilds a second.
+        let revealChanged = !hasCommittedReveal || !Self.sameReveal(committedReveal ?? .none, reveal)
+        // Tracked separately, because the edge hangs off the window alone (see
+        // `Reveal.window`) and must not be redrawn — six stroked rings — every
+        // half-point the pointer travels.
+        let windowChanged = !hasCommittedReveal || !Self.sameRect(committedReveal?.window, reveal.window)
+        guard revealChanged || pendingPicture != nil else { return }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -147,21 +184,21 @@ final class BlurOverlay {
             pictureArrived = true
             hasPicture = true
         }
-        if holeChanged {
+        if revealChanged {
             maskLayer.path = Self.maskPath(
                 screen: screen.frame.size,
-                hole: hole,
-                cornerRadius: cutoutCornerRadius(for: hole)
+                reveal: reveal,
+                cornerRadius: cutoutCornerRadius(for: reveal.window)
             )
             maskLayer.fillRule = .evenOdd
             maskLayer.frame = CGRect(origin: .zero, size: screen.frame.size)
-            committedHole = hole
-            hasCommittedHole = true
+            committedReveal = reveal
+            hasCommittedReveal = true
         }
-        // The edge follows the cutout, and its colour follows the background —
-        // so it is refreshed when either one changed.
-        if holeChanged || pictureArrived {
-            updateEdge(hole: hole)
+        // The edge follows the *window* — see `Reveal.window` — and its colour
+        // follows the background, so it is refreshed when either one changed.
+        if windowChanged || pictureArrived {
+            updateEdge(hole: reveal.window)
         }
         CATransaction.commit()
     }
@@ -171,8 +208,8 @@ final class BlurOverlay {
     /// (an otherwise-empty desktop).
     func clear() {
         pendingPicture = nil
-        committedHole = nil
-        hasCommittedHole = false
+        committedReveal = nil
+        hasCommittedReveal = false
         hasPicture = false
         // Both halves of the edge's memory go together: keeping the hysteresis
         // seed while throwing away the brightness it was derived from lets a
@@ -313,10 +350,29 @@ final class BlurOverlay {
     private static let darkAbove: CGFloat = 0.55
     private static let lightBelow: CGFloat = 0.45
 
-    private static func sameHole(_ a: CGRect?, _ b: CGRect?) -> Bool {
+    /// Compares two reveals, and two rectangles, with tolerance.
+    ///
+    /// Both members come from live sources — the window server's idea of a
+    /// window rectangle, the compositor's idea of where the pointer is — and
+    /// both jitter by fractions of a point while nothing visible is happening.
+    /// Rebuilding a path per jitter would undo the whole point of comparing
+    /// before committing. Half a point is below a pixel on any display, and it
+    /// cannot accumulate: the comparison is always against what was last
+    /// committed, not against a drifting baseline.
+    static func sameReveal(_ a: Reveal, _ b: Reveal) -> Bool {
+        sameRect(a.window, b.window) && sameRect(a.cursor, b.cursor)
+    }
+
+    private static let revealTolerance: CGFloat = 0.5
+
+    private static func sameRect(_ a: CGRect?, _ b: CGRect?) -> Bool {
         switch (a, b) {
         case (nil, nil): return true
-        case (let lhs?, let rhs?): return lhs == rhs
+        case (let lhs?, let rhs?):
+            return abs(lhs.origin.x - rhs.origin.x) < revealTolerance &&
+                   abs(lhs.origin.y - rhs.origin.y) < revealTolerance &&
+                   abs(lhs.width - rhs.width) < revealTolerance &&
+                   abs(lhs.height - rhs.height) < revealTolerance
         default: return false
         }
     }
@@ -418,16 +474,47 @@ final class BlurOverlay {
         return path
     }
 
-    /// An even-odd path covering the whole screen with the cutout subtracted.
-    private static func maskPath(screen: CGSize, hole: NSRect?, cornerRadius: CGFloat) -> CGPath {
+    /// An even-odd path covering the whole screen with everything revealed
+    /// subtracted.
+    static func maskPath(screen: CGSize, reveal: Reveal, cornerRadius: CGFloat) -> CGPath {
         let path = CGMutablePath()
         path.addRect(CGRect(origin: .zero, size: screen))
-        if let hole, !hole.isEmpty {
-            let flipped = Self.flipped(hole, in: screen)
-            let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
-            path.addPath(Self.roundedRectPath(flipped, radii))
+        if let holes = Self.holePath(reveal: reveal, screen: screen, cornerRadius: cornerRadius) {
+            path.addPath(holes)
         }
         return path
+    }
+
+    /// Everything revealed as **one** even-odd-ready path, or `nil` when nothing
+    /// is. Being one path is the requirement, not a convenience: see the union
+    /// below.
+    static func holePath(reveal: Reveal, screen: CGSize, cornerRadius: CGFloat) -> CGPath? {
+        var shapes: [CGPath] = []
+        if let window = reveal.window, !window.isEmpty {
+            let flipped = Self.flipped(window, in: screen)
+            let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
+            shapes.append(Self.roundedRectPath(flipped, radii))
+        }
+        if let cursor = reveal.cursor, !cursor.isEmpty {
+            let disc = CGMutablePath()
+            disc.addEllipse(in: Self.flipped(cursor, in: screen))
+            shapes.append(disc)
+        }
+        guard var merged = shapes.first else { return nil }
+        // The one trap in having two revealed shapes.
+        //
+        // Even-odd is an exclusive-or: a point lying in both holes crosses
+        // three boundaries and reads as *inside* the mask, so the overlap gets
+        // blurred back over — a lens of haze straddling the boundary, appearing
+        // and vanishing as the cursor crosses it. Dragging the pointer onto the
+        // focused window's edge is an ordinary gesture that would hit this every
+        // single time.
+        //
+        // Unioning first turns "either shape" into one region, so it crosses
+        // exactly twice like a single hole does. `union` keeps curves as curves,
+        // so this costs nothing in fidelity.
+        for shape in shapes.dropFirst() { merged = merged.union(shape, using: .evenOdd) }
+        return merged
     }
 
     func close() {

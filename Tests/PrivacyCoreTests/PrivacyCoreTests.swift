@@ -275,6 +275,177 @@ final class FocusSelectionTests: XCTestCase {
     }
 }
 
+/// The even-odd trap, the roundness of the cursor disc, and the display it
+/// belongs to. Everything here is pure geometry: no display, no window server,
+/// no Screen Recording permission.
+@MainActor
+final class RevealTests: XCTestCase {
+    private let screen = CGSize(width: 1000, height: 800)
+    private let window = CGRect(x: 100, y: 100, width: 400, height: 300)
+
+    /// `true` when the blur covers it, `false` when something is revealed there.
+    /// Takes a **top-left** point and flips it the way `CALayer` wants it.
+    private func blurred(_ point: CGPoint, reveal: Reveal, radius: CGFloat = 18) -> Bool {
+        BlurOverlay.maskPath(screen: screen, reveal: reveal, cornerRadius: radius)
+            .contains(CGPoint(x: point.x, y: screen.height - point.y), using: .evenOdd)
+    }
+
+    /// The whole path, sampled, so two reveals can be compared for sameness
+    /// without pretending `CGPath` is `Equatable`.
+    private func sampled(_ reveal: Reveal, step: CGFloat = 20) -> String {
+        let path = BlurOverlay.maskPath(screen: screen, reveal: reveal, cornerRadius: 18)
+        var rows: [String] = []
+        var y: CGFloat = 0
+        while y < screen.height {
+            var row = ""
+            var x: CGFloat = 0
+            while x < screen.width {
+                row += path.contains(CGPoint(x: x, y: y), using: .evenOdd) ? "1" : "0"
+                x += step
+            }
+            rows.append(row)
+            y += step
+        }
+        return rows.joined(separator: "/")
+    }
+
+    private func disc(centre: CGPoint, radius: CGFloat) -> CGRect {
+        CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2)
+    }
+
+    func testNothingRevealedBlursEverything() {
+        XCTAssertTrue(blurred(CGPoint(x: 500, y: 400), reveal: .none))
+        XCTAssertTrue(blurred(CGPoint(x: 1, y: 1), reveal: .none))
+    }
+
+    /// Two holes that do not touch behave exactly like one of them being there
+    /// alone — checked here because it is the case a union could plausibly get
+    /// wrong after unioning.
+    func testSeparateHolesBothStaySharp() {
+        let reveal = Reveal(window: window, cursor: disc(centre: CGPoint(x: 700, y: 550), radius: 80))
+        XCTAssertFalse(blurred(CGPoint(x: 300, y: 250), reveal: reveal), "the window's cutout")
+        XCTAssertFalse(blurred(CGPoint(x: 700, y: 550), reveal: reveal), "the cursor's disc")
+        XCTAssertTrue(blurred(CGPoint(x: 550, y: 300), reveal: reveal), "the blur between them")
+        XCTAssertTrue(blurred(CGPoint(x: 900, y: 750), reveal: reveal), "the blur outside them")
+    }
+
+    /// The regression this guards, and the one real trap in having a second
+    /// revealed shape.
+    ///
+    /// Even-odd is an exclusive-or. A point lying in *both* holes crosses three
+    /// boundaries and therefore reads as inside the mask, so the overlap is
+    /// blurred back over: a lens of haze straddling the window's edge, appearing
+    /// every time the cursor crosses it. Adding two separate subpaths instead of
+    /// their union is what produces it.
+    func testOverlappingHolesDoNotCancelEachOtherOut() {
+        // Straddles the window's right edge, which is where the cursor spends
+        // its time — changing a window's size, reaching for a scrollbar.
+        let reveal = Reveal(window: window, cursor: disc(centre: CGPoint(x: 500, y: 300), radius: 100))
+        XCTAssertFalse(blurred(CGPoint(x: 470, y: 300), reveal: reveal), "inside both")
+        XCTAssertFalse(blurred(CGPoint(x: 520, y: 300), reveal: reveal), "inside both, past the edge")
+        XCTAssertFalse(blurred(CGPoint(x: 450, y: 250), reveal: reveal), "inside both, upper corner")
+        XCTAssertFalse(blurred(CGPoint(x: 555, y: 300), reveal: reveal), "inside the disc alone")
+        XCTAssertFalse(blurred(CGPoint(x: 300, y: 250), reveal: reveal), "inside the window alone")
+        XCTAssertTrue(blurred(CGPoint(x: 700, y: 300), reveal: reveal), "outside both")
+    }
+
+    /// A disc entirely inside the window changes nothing at all — the whole point
+    /// of unioning rather than punching a second hole.
+    func testDiscInsideTheWindowChangesNothing() {
+        let contained = Reveal(window: window, cursor: disc(centre: CGPoint(x: 300, y: 250), radius: 40))
+        XCTAssertEqual(sampled(contained), sampled(Reveal(window: window)))
+    }
+
+    /// The other direction: a disc big enough to swallow the window leaves only
+    /// the disc revealed, window included. Neither one may survive as a shape of
+    /// its own and re-blur a patch inside the other.
+    ///
+    /// The window sits near the middle here on purpose. An earlier version used
+    /// one whose left edge poked out past the circle, which silently turned this
+    /// into a *different* test — unioning correctly draws their combination, and
+    /// the assertion was comparing that against part of it.
+    func testWindowInsideTheDiscChangesNothing() {
+        let around = disc(centre: CGPoint(x: 450, y: 400), radius: 300)
+        let devoured = Reveal(window: CGRect(x: 380, y: 320, width: 100, height: 80), cursor: around)
+        // Every corner really is inside, so nothing of the window can survive.
+        for corner in [
+            CGPoint(x: 380, y: 320), CGPoint(x: 480, y: 320),
+            CGPoint(x: 480, y: 400), CGPoint(x: 380, y: 400),
+        ] {
+            let distance = hypot(corner.x - 450, corner.y - 400)
+            XCTAssertLessThan(distance, 300, "corner at \(corner) must be swallowed")
+        }
+        XCTAssertEqual(sampled(devoured), sampled(Reveal(cursor: around)))
+    }
+
+    /// The disc must not be clipped to the display before an ellipse is
+    /// inscribed in it: near an edge that turns a circle into an egg, and the
+    /// flat side sits where the cursor is busiest. (The overlay's own bounds do
+    /// the clipping, which is the honest place for it.)
+    func testDiscStaysRoundWhenItOverhangsTheEdge() {
+        let reveal = Reveal(cursor: disc(centre: CGPoint(x: 10, y: 400), radius: 100))
+        // Would be outside a box clipped to x ≥ 0, still well inside the circle.
+        XCTAssertFalse(blurred(CGPoint(x: 2, y: 470), reveal: reveal))
+        XCTAssertFalse(blurred(CGPoint(x: 2, y: 400), reveal: reveal))
+        XCTAssertTrue(blurred(CGPoint(x: 200, y: 470), reveal: reveal), "outside the circle")
+    }
+
+    /// Where the disc is drawn, and how big. Split out as a pure function so
+    /// this can be asked without a display attached.
+    func testCursorHoleIsLocalAndSquare() {
+        let bounds = CGRect(x: 1000, y: 0, width: 1024, height: 768)
+        let hole = PrivacyController.cursorHole(point: CGPoint(x: 1500, y: 300), in: bounds, radius: 60)
+        XCTAssertEqual(hole, CGRect(x: 440, y: 240, width: 120, height: 120))
+    }
+
+    /// Only one display may draw it. Each overlay is one screen with its own
+    /// layer tree, so two halves clipped independently are not a whole disc.
+    func testCursorOffThisDisplayDrawsNothing() {
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        XCTAssertNil(PrivacyController.cursorHole(point: CGPoint(x: 1200, y: 400), in: bounds, radius: 60))
+        XCTAssertNil(PrivacyController.cursorHole(point: CGPoint(x: 500, y: 900), in: bounds, radius: 60))
+        // A negative origin is how most arrangements look.
+        XCTAssertNil(PrivacyController.cursorHole(point: CGPoint(x: -400, y: 400), in: bounds, radius: 60))
+    }
+
+    /// Halves are exclusive at a seam, so every position belongs to exactly one
+    /// display: the right-hand one owns the shared column.
+    func testCursorExactlyOnASeamBelongsToOneDisplay() {
+        let left = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let right = CGRect(x: 1000, y: 0, width: 1000, height: 800)
+        let seam = CGPoint(x: 1000, y: 400)
+        XCTAssertNil(PrivacyController.cursorHole(point: seam, in: left, radius: 60))
+        XCTAssertEqual(
+            PrivacyController.cursorHole(point: seam, in: right, radius: 60),
+            CGRect(x: -60, y: 340, width: 120, height: 120)
+        )
+    }
+
+    /// No reading, no disc. Guessing the last position would park a sharp circle
+    /// over pixels nobody asked to see.
+    func testUnknownCursorPositionDrawsNothing() {
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        XCTAssertNil(PrivacyController.cursorHole(point: nil, in: bounds, radius: 60))
+        XCTAssertNil(PrivacyController.cursorHole(point: CGPoint(x: 500, y: 400), in: bounds, radius: 0))
+    }
+
+    /// Sub-point jitter must not rebuild a path sixty times a second, but real
+    /// movement — including a changed radius — has to.
+    func testSameRevealToleratesSubPointJitter() {
+        let base = Reveal(window: window, cursor: disc(centre: CGPoint(x: 500, y: 500), radius: 120))
+        let jittered = Reveal(window: window, cursor: disc(centre: CGPoint(x: 500.4, y: 500.3), radius: 120))
+        XCTAssertTrue(BlurOverlay.sameReveal(base, jittered))
+        XCTAssertFalse(
+            BlurOverlay.sameReveal(base, Reveal(window: window, cursor: disc(centre: CGPoint(x: 501, y: 500), radius: 120)))
+        )
+        XCTAssertFalse(
+            BlurOverlay.sameReveal(base, Reveal(window: window, cursor: disc(centre: CGPoint(x: 500, y: 500), radius: 200)))
+        )
+        XCTAssertFalse(BlurOverlay.sameReveal(base, Reveal(window: window)))
+        XCTAssertTrue(BlurOverlay.sameReveal(base, base))
+    }
+}
+
 @MainActor
 final class CoverageTests: XCTestCase {
     private let bounds = CGRect(x: 0, y: 0, width: 1000, height: 800)

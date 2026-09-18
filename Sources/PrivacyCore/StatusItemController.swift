@@ -9,6 +9,8 @@ final class StatusItemController {
     private var strengthItems: [NSMenuItem] = []
     private var chromeItem: NSMenuItem!
     private var autoPauseItem: NSMenuItem!
+    private var cursorItem: NSMenuItem!
+    private var cursorRadiusItems: [NSMenuItem] = []
 
     /// Blur strength as a percentage of the maximum the app ships. The engine
     /// works in a Gaussian blur *radius* (points), so each step uses
@@ -23,6 +25,13 @@ final class StatusItemController {
         ("60%", 30),
         ("70%", 35),
         ("80%", 40),
+    ]
+
+    /// Radii (points) of the disc kept sharp around the cursor.
+    private let cursorRadii: [(title: String, radius: Double)] = [
+        ("60 pt", 60),
+        ("120 pt", 120),
+        ("200 pt", 200),
     ]
 
     init(privacy: PrivacyController) {
@@ -77,6 +86,32 @@ final class StatusItemController {
         autoPauseItem.state = privacy.pausesForFullScreenApps ? .on : .off
         menu.addItem(autoPauseItem)
 
+        cursorItem = NSMenuItem(
+            title: "鼠标周围保持清晰",
+            action: #selector(toggleCursorReveal),
+            keyEquivalent: ""
+        )
+        cursorItem.target = self
+        cursorItem.state = privacy.revealsCursor ? .on : .off
+        menu.addItem(cursorItem)
+
+        // Kept as its own row rather than as a submenu of the toggle: clicking
+        // an item that owns a submenu is its own corner of AppKit, and this is a
+        // choice that has to feel certain. Picking a radius turns the effect on
+        // — the only reason to be choosing one.
+        let cursorSize = NSMenuItem(title: "光标清晰范围", action: nil, keyEquivalent: "")
+        let cursorSub = NSMenu()
+        for option in cursorRadii {
+            let item = NSMenuItem(title: option.title, action: #selector(setCursorRadius(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = option.radius
+            item.state = privacy.revealsCursor && option.radius == privacy.currentCursorRevealRadius ? .on : .off
+            cursorSub.addItem(item)
+            cursorRadiusItems.append(item)
+        }
+        cursorSize.submenu = cursorSub
+        menu.addItem(cursorSize)
+
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -111,6 +146,29 @@ final class StatusItemController {
     @objc private func toggleAutoPause() {
         privacy.setPauseForFullScreenApps(!privacy.pausesForFullScreenApps)
         autoPauseItem.state = privacy.pausesForFullScreenApps ? .on : .off
+    }
+
+    @objc private func toggleCursorReveal() {
+        privacy.setRevealCursor(!privacy.revealsCursor)
+        syncCursorItems()
+    }
+
+    @objc private func setCursorRadius(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? Double else { return }
+        privacy.setCursorRevealRadius(value)
+        // Choosing a size is asking for the disc; nobody picks a radius and then
+        // waits for it to appear.
+        if !privacy.revealsCursor { privacy.setRevealCursor(true) }
+        syncCursorItems()
+    }
+
+    /// One place that reflects the setting, whichever route changed it.
+    private func syncCursorItems() {
+        cursorItem.state = privacy.revealsCursor ? .on : .off
+        for item in cursorRadiusItems {
+            let radius = item.representedObject as? Double
+            item.state = privacy.revealsCursor && radius == privacy.currentCursorRevealRadius ? .on : .off
+        }
     }
 
     @objc private func quit() {
