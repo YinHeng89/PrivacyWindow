@@ -132,3 +132,9 @@ Sources/
 Tests/
   PrivacyCoreTests/             // 纯几何与策略逻辑的单元测试
 ```
+
+## 技术方案选型
+
+我们走的是 **ScreenCaptureKit 截屏 + `CIGaussianBlur` 自己算模糊**。另一条常见路线是 `NSVisualEffectView(.behindWindow)` 让系统合成器给模糊（QuietLens 就是这么做的）——它便宜、实时、不要屏幕录制权限，但模糊强度被系统预设的几档材质封死，改不动。
+
+完整的逐项对比、可行性判定，以及「为什么建议补一条 Vibrancy 降级路线」见 **[docs/QuietLens-方案评估.md](docs/QuietLens-方案评估.md)**。

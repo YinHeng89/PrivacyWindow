@@ -36,6 +36,24 @@ fi
 APP_NAME="PrivacyWindow"
 BUNDLE="build/${APP_NAME}.app"
 
+# SwiftPM touches ~/.swiftpm/security, which is denied when the build itself
+# runs inside a macOS sandbox ("sandbox_apply: Operation not permitted").
+# Retry once with --disable-sandbox instead of failing outright.
+swift_build() {
+  local output
+  if output="$(swift build "$@" 2>&1)"; then
+    [[ -n "$output" ]] && printf '%s\n' "$output"
+    return 0
+  fi
+  if printf '%s' "$output" | grep -q "sandbox_apply"; then
+    echo "⚠️  swift build is sandboxed here; retrying with --disable-sandbox." >&2
+    swift build "$@" --disable-sandbox
+    return $?
+  fi
+  printf '%s\n' "$output"
+  return 1
+}
+
 BUILD_ARGS=(-c release)
 RUN_APP=false
 for argument in "$@"; do
@@ -46,9 +64,9 @@ for argument in "$@"; do
   esac
 done
 
-swift build "${BUILD_ARGS[@]}" --product PrivacyWindow
+swift_build "${BUILD_ARGS[@]}" --product PrivacyWindow
 
-BIN_PATH="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
+BIN_PATH="$(swift_build "${BUILD_ARGS[@]}" --show-bin-path)"
 BINARY="$BIN_PATH/PrivacyWindow"
 
 rm -rf "$BUNDLE"

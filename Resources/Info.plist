@@ -32,6 +32,10 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- Shown on the Screen Recording prompt. Without it the prompt has no
+	     explanation to display and macOS may refuse the capture outright. -->
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>隐私窗口需要读取屏幕画面，才能对非当前窗口的区域做模糊处理。画面只在本机内存中处理，不会保存或上传。</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
