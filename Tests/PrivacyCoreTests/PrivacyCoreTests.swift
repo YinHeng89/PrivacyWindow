@@ -356,13 +356,47 @@ final class RevealTests: XCTestCase {
         let reveal = Reveal(
             window: window,
             cursor: disc(centre: CGPoint(x: 500, y: 300), radius: 100),
-            ownWindow: CGRect(x: 420, y: 220, width: 260, height: 200)
+            ownWindows: [CGRect(x: 420, y: 220, width: 260, height: 200)]
         )
         XCTAssertFalse(blurred(CGPoint(x: 500, y: 300), reveal: reveal), "in all three")
         XCTAssertFalse(blurred(CGPoint(x: 470, y: 260), reveal: reveal), "in window and own window")
         XCTAssertFalse(blurred(CGPoint(x: 560, y: 380), reveal: reveal), "in cursor and own window")
         XCTAssertFalse(blurred(CGPoint(x: 640, y: 400), reveal: reveal), "in own window alone")
         XCTAssertTrue(blurred(CGPoint(x: 850, y: 650), reveal: reveal), "outside everything")
+    }
+
+    /// **Every** window of ours is cut out, not just the first.
+    ///
+    /// Regression: the hole used to be a single rect taken from the first own
+    /// window found. The status item's window sorts ahead of Settings in
+    /// `NSApp.windows`, so the cutout went to the menu bar widget and Settings
+    /// sat under its own blur — which is exactly what "the settings window never
+    /// appears in the hole" looked like.
+    func testEveryOwnWindowIsCutOutNotJustTheFirst() {
+        let reveal = Reveal(
+            ownWindows: [
+                CGRect(x: 20, y: 8, width: 26, height: 22),      // the status item
+                CGRect(x: 200, y: 150, width: 600, height: 400)  // Settings
+            ]
+        )
+        XCTAssertFalse(blurred(CGPoint(x: 31, y: 18), reveal: reveal), "the status item is cut out")
+        XCTAssertFalse(blurred(CGPoint(x: 500, y: 350), reveal: reveal), "Settings is cut out too")
+        XCTAssertTrue(blurred(CGPoint(x: 900, y: 700), reveal: reveal), "everything else stays blurred")
+    }
+
+    /// An excluded app's window stays sharp *alongside* the focused one.
+    ///
+    /// Excluding an app is not "pause the effect while it is in front": moving
+    /// the focus elsewhere leaves the excluded window sharp and the newly
+    /// focused window sharp, with the rest of the desktop still blurred.
+    func testExcludedAppWindowStaysSharpBesideTheFocus() {
+        let reveal = Reveal(
+            window: CGRect(x: 200, y: 150, width: 400, height: 300),
+            excluded: [CGRect(x: 700, y: 400, width: 400, height: 300)]
+        )
+        XCTAssertFalse(blurred(CGPoint(x: 300, y: 250), reveal: reveal), "the focused window")
+        XCTAssertFalse(blurred(CGPoint(x: 900, y: 550), reveal: reveal), "the excluded app, unfocused")
+        XCTAssertTrue(blurred(CGPoint(x: 500, y: 800), reveal: reveal), "everything else")
     }
 
     /// A disc entirely inside the window changes nothing at all — the whole point

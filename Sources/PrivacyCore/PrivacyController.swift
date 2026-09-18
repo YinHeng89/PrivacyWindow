@@ -342,13 +342,60 @@ final class PrivacyController: ObservableObject {
         UserDefaults.standard.set(Array(excludedApps.bundleIDs), forKey: SettingsKey.excludedApps)
     }
 
-    /// The bundle identifier of whatever app is frontmost right now, or `nil`.
-    /// Reading this is cheap — `NSWorkspace` keeps it — so it is checked on
-    /// every focus pass rather than only on app-switch notifications, which
-    /// this app deliberately does not subscribe to: one less observer whose
-    /// missed delivery would leave the effect running over an excluded app.
-    private var frontmostBundleID: String? {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    /// Windows belonging to excluded apps, in global top-left coordinates.
+    ///
+    /// Excluding an app does **not** pause the effect while it is in front. It
+    /// means this app's windows are never blurred, focused or not: switch from
+    /// WeChat to another window and WeChat stays sharp *and* the newly focused
+    /// window is sharp, with everything else still blurred.
+    private var excludedWindows: [CGRect] = []
+    /// Rebuilt every few frames, not every frame — see `refreshExcludedWindows`.
+    private static let excludedRefreshInterval = 6
+
+    private func refreshExcludedWindows() {
+        guard !excludedApps.isEmpty else {
+            excludedWindows = []
+            return
+        }
+        // The window list walk is the expensive part, and an excluded app's
+        // windows only move as fast as someone can drag them. Keeping the last
+        // result in between is invisible at six refreshes a second.
+        guard frameIndex % Self.excludedRefreshInterval == 0 || excludedWindows.isEmpty else { return }
+        excludedWindows = Self.windows(of: excludedApps.bundleIDs)
+    }
+
+    /// On-screen windows owned by any of `bundleIDs`, in the global top-left
+    /// space the rest of the app speaks.
+    static func windows(of bundleIDs: Set<String>) -> [CGRect] {
+        guard !bundleIDs.isEmpty,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+        else { return [] }
+
+        let own = Bundle.main.bundleIdentifier
+        // One look-up per process, not per window: an app with a dozen windows
+        // would otherwise ask `NSWorkspace` the same question twelve times.
+        var bundleIDByPID: [pid_t: String?] = [:]
+        var rects: [CGRect] = []
+
+        for entry in list {
+            // Only ordinary windows, using the same ceiling the focus pick uses.
+            // A menu bar item or a Dock tile belongs to the app but is not a
+            // window anyone thinks of as "the app's window".
+            guard let layer = entry[kCGWindowLayer as String] as? Int, layer >= 0, layer <= 19 else { continue }
+            guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+                  let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  rect.width > 40, rect.height > 30
+            else { continue }
+
+            let bundleID: String? = bundleIDByPID[pid] ?? NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+            bundleIDByPID[pid] = bundleID
+            guard let bundleID, bundleID != own, let id = ExcludedApps.normalized(bundleID),
+                  bundleIDs.contains(id)
+            else { continue }
+            rects.append(rect)
+        }
+        return rects
     }
 
     /// Whether `displayID` is worth blurring right now.
@@ -945,7 +992,8 @@ final class PrivacyController: ObservableObject {
         // focus we would return here, never commit, and leave the overlay
         // covering the one window of ours the user is trying to use.
         let ownWindows = Self.ownWindowRects()
-        guard focus != nil || !ownWindows.isEmpty else {
+        refreshExcludedWindows()
+        guard focus != nil || !ownWindows.isEmpty || !excludedWindows.isEmpty else {
             cursorPoint = nil
             return
         }
@@ -962,7 +1010,8 @@ final class PrivacyController: ObservableObject {
             overlay.commit(reveal: Reveal(
                 window: localHole(for: id),
                 cursor: cursorHole(for: id),
-                ownWindow: ownWindowHole(for: id, among: ownWindows)
+                ownWindows: ownWindowHoles(for: id, among: ownWindows),
+                excluded: excludedHoles(for: id)
             ))
         }
     }
@@ -1001,20 +1050,6 @@ final class PrivacyController: ObservableObject {
         if candidate != nil, powerPaused,
            !Self.isScreenLocked() || Date.timeIntervalSinceReferenceDate - powerPausedAt > Self.maxPowerPause {
             resumeFromPower()
-        }
-        // An excluded app in front stands the whole effect down: the same state
-        // as "no focused window", for the same reason — the user has said this
-        // app has nothing on the desktop worth hiding. Checked on every pass
-        // rather than on app-switch notifications, so a missed notification can
-        // never leave the blur running over an excluded app.
-        if excludedApps.contains(frontmostBundleID) {
-            guard focus != nil else { return }
-            focus = nil
-            framesWithoutFocus = 0
-            settledFrames = 0
-            for (_, overlay) in overlays { overlay.clear() }
-            stopCaptureLoop()
-            return
         }
         guard let candidate else {
             framesWithoutFocus += 1
@@ -1331,17 +1366,34 @@ final class PrivacyController: ObservableObject {
     /// cutting a hole for it would punch through the blur behind its corners.
     static func ownWindowRects() -> [CGRect] {
         NSApp.windows
-            .filter { !($0 is OverlayWindow) && $0.parent == nil && $0.isVisible && !$0.isMiniaturized }
+            // `level == .normal` is what keeps the status item out. Its window
+            // comes first in `NSApp.windows`, so when only one hole was cut it
+            // was cut for the menu bar widget — and Settings, further down the
+            // list, stayed under the blur.
+            .filter {
+                !($0 is OverlayWindow) && $0.parent == nil && $0.isVisible &&
+                    !$0.isMiniaturized && $0.level == .normal
+            }
             .map { convertToCGCoordinates($0.frame) }
     }
 
-    /// The part of one of our own windows that lands on `displayID`, in
-    /// overlay-local points, or `nil` when none of them does.
-    private func ownWindowHole(for displayID: CGDirectDisplayID, among rects: [CGRect]) -> CGRect? {
+    /// The parts of our own windows that land on `displayID`, in overlay-local
+    /// points. Every one of them, not just the first: two windows of ours can be
+    /// on the same display at once.
+    private func ownWindowHoles(for displayID: CGDirectDisplayID, among rects: [CGRect]) -> [CGRect] {
+        clipToDisplay(rects, displayID: displayID)
+    }
+
+    private func excludedHoles(for displayID: CGDirectDisplayID) -> [CGRect] {
+        clipToDisplay(excludedWindows, displayID: displayID)
+    }
+
+    /// `rects` trimmed to `displayID` and re-based to overlay-local points.
+    private func clipToDisplay(_ rects: [CGRect], displayID: CGDirectDisplayID) -> [CGRect] {
         let bounds = CGDisplayBounds(displayID)
-        for rect in rects {
+        return rects.compactMap { rect in
             let visible = rect.intersection(bounds)
-            guard !visible.isNull, visible.width > 1, visible.height > 1 else { continue }
+            guard !visible.isNull, visible.width > 1, visible.height > 1 else { return nil }
             return CGRect(
                 x: visible.minX - bounds.minX,
                 y: visible.minY - bounds.minY,
@@ -1349,7 +1401,6 @@ final class PrivacyController: ObservableObject {
                 height: visible.height
             )
         }
-        return nil
     }
 
     /// Converts an AppKit window frame to the global top-left coordinates the

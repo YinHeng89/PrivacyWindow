@@ -34,15 +34,27 @@ struct Reveal: Equatable {
     /// would squash the near edge of the circle into a straight-ish line. The
     /// overlay's own bounds do whatever clipping there is left to do.
     var cursor: CGRect?
-    /// One of *our own* windows that the overlay would otherwise cover — the
-    /// Settings window, in practice.
+    /// *Our own* windows that the overlay would otherwise cover — the Settings
+    /// window, in practice.
     ///
     /// The overlay sits above every ordinary window, including the ones this app
     /// puts on screen, so without this you would open Settings and find it
     /// sitting behind its own blur. Cutting them out is also why the settings
     /// window does not need a window level above the overlay, which is what
     /// breaks macOS's own screenshot tool for certain windows.
-    var ownWindow: CGRect?
+    ///
+    /// A list, not a single rect: `NSApp.windows` starts with the status item's
+    /// own window, so taking the first match cut a hole for the menu bar widget
+    /// and left Settings under the blur.
+    var ownWindows: [CGRect] = []
+    /// Windows of apps the user excluded, which stay sharp whether or not they
+    /// are focused.
+    ///
+    /// Excluding an app means *its windows are never blurred* — not "the effect
+    /// pauses while it is in front". Switching from WeChat to another window
+    /// leaves WeChat sharp and makes the newly focused window sharp too; only
+    /// everything else stays blurred.
+    var excluded: [CGRect] = []
 
     /// Nothing revealed: the whole screen stays blurred.
     static let none = Reveal()
@@ -498,10 +510,18 @@ final class BlurOverlay {
     /// committed, not against a drifting baseline.
     static func sameReveal(_ a: Reveal, _ b: Reveal) -> Bool {
         sameRect(a.window, b.window) && sameRect(a.cursor, b.cursor) &&
-            sameRect(a.ownWindow, b.ownWindow)
+            sameRects(a.ownWindows, b.ownWindows) && sameRects(a.excluded, b.excluded)
     }
 
     private static let revealTolerance: CGFloat = 0.5
+
+    /// Two lists of rects are the same when they are the same length and match
+    /// pairwise. Order comes from the window server and is stable enough for
+    /// that; sorting would hide a genuine reordering as a no-op, but the mask
+    /// is a union, so a reordering is not one.
+    private static func sameRects(_ a: [CGRect], _ b: [CGRect]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { sameRect($0, $1) }
+    }
 
     private static func sameRect(_ a: CGRect?, _ b: CGRect?) -> Bool {
         switch (a, b) {
@@ -633,12 +653,16 @@ final class BlurOverlay {
             let radii = Self.cornerRadii(for: flipped, in: screen, radius: cornerRadius)
             shapes.append(Self.roundedRectPath(flipped, radii))
         }
-        if let ownWindow = reveal.ownWindow, !ownWindow.isEmpty {
-            let flipped = Self.flipped(ownWindow, in: screen)
-            // Its own radius: `cornerRadius` is an empirical match for a
-            // *window's* corners, and a real window is drawn by AppKit with a
-            // tighter one. Cutting ours looser would leave blurred tips poking
-            // into the settings window's corners.
+        // Both of these are ordinary windows AppKit draws with a tighter corner
+        // than `cornerRadius` is tuned for, so they get their own radius:
+        // cutting them looser leaves blurred tips poking into their corners.
+        for own in reveal.ownWindows where !own.isEmpty {
+            let flipped = Self.flipped(own, in: screen)
+            let radii = Self.cornerRadii(for: flipped, in: screen, radius: Self.ownWindowCornerRadius)
+            shapes.append(Self.roundedRectPath(flipped, radii))
+        }
+        for rect in reveal.excluded where !rect.isEmpty {
+            let flipped = Self.flipped(rect, in: screen)
             let radii = Self.cornerRadii(for: flipped, in: screen, radius: Self.ownWindowCornerRadius)
             shapes.append(Self.roundedRectPath(flipped, radii))
         }

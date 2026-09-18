@@ -300,6 +300,13 @@ struct BehaviorScreen: View {
 
             if match("排除 应用 排除应用 信任 白名单 前台 暂停 exclude app") {
                 SectionLabel(text: "排除应用")
+                if !privacy.excludedApps.isEmpty {
+                    Callout(
+                        title: "这些应用的窗口始终清晰",
+                        message: "不管焦点在哪，它们的窗口都不会被模糊。焦点窗口照常露出，所以切换过去时两边都是清晰的 —— 只有其余区域保持模糊。",
+                        systemImage: "eye"
+                    )
+                }
                 GlassPanel {
                     VStack(spacing: 0) {
                         if privacy.excludedApps.isEmpty {
@@ -307,7 +314,7 @@ struct BehaviorScreen: View {
                                 icon: "tray",
                                 iconTint: .neutral,
                                 title: "还没有排除任何应用",
-                                subtitle: "加入排除列表的应用位于前台时，整个效果会暂停 —— 全桌面保持清晰，退出前台后自动恢复。",
+                                subtitle: "加入排除列表的应用，它的窗口始终保持清晰 —— 不管它是不是当前焦点。焦点窗口照常清晰，其余区域照常模糊。",
                                 isFirst: true
                             )
                         } else {
