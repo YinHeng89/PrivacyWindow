@@ -432,10 +432,10 @@ final class BlurOverlay {
             || abs(from.height - to.height) > from.height * Self.jumpResizeFraction
     }
 
-    private static let jumpCentreThreshold: CGFloat = 64
-    private static let jumpResizeFraction: CGFloat = 0.3
+    nonisolated private static let jumpCentreThreshold: CGFloat = 64
+    nonisolated private static let jumpResizeFraction: CGFloat = 0.3
     /// How long a focus switch takes to slide the cutout across.
-    private static let jumpDuration: CFTimeInterval = 0.24
+    nonisolated private static let jumpDuration: CFTimeInterval = 0.24
 
     /// Corner radius to cut the hole with.
     ///
