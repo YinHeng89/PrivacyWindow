@@ -6,7 +6,6 @@ import AppKit
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusController: StatusItemController?
-    private var hotKeyController: HotKeyController?
     private let privacy = PrivacyController()
 
     public override init() {
@@ -16,14 +15,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         privacy.restoreSettings()
         statusController = StatusItemController(privacy: privacy)
-        // Global ⌃⌥⌘B to toggle the blur from anywhere, no Accessibility grant.
-        // `register()` reports whether Carbon accepted the key, so the menu only
-        // advertises the shortcut when it really works.
-        let hotKey = HotKeyController(action: { [weak self] in
-            self?.statusController?.toggle()
-        })
-        hotKeyController = hotKey
-        statusController?.setHotKeyRegistered(hotKey.register())
     }
 
     /// Tears the effect down on the way out.

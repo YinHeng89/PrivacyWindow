@@ -85,15 +85,7 @@ final class StatusItemController {
         statusItem.menu = menu
     }
 
-    /// Records whether the global shortcut could actually be registered, and
-    /// reflects it in the toggle item's tooltip. Carbon refuses the hotkey when
-    /// another app already owns it, and a tooltip promising a shortcut that does
-    /// nothing is worse than no tooltip at all.
-    func setHotKeyRegistered(_ registered: Bool) {
-        toggleItem.toolTip = registered ? "全局快捷键 ⌃⌥⌘B" : "全局快捷键 ⌃⌥⌘B 已被其他 App 占用"
-    }
-
-    @objc func toggle() {
+    @objc private func toggle() {
         if privacy.isEnabled {
             privacy.disable()
         } else {
