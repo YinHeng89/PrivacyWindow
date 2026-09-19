@@ -71,11 +71,17 @@ final class StatusItemController {
         NotificationCenter.default.addObserver(
             forName: I18n.languageDidChange, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.reconcileMenuAssignment()
+            MainActor.assumeIsolated {
+                self?.reconcileMenuAssignment()
+            }
         }
         preferences.$menuBarClickAction
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.reconcileMenuAssignment() }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.reconcileMenuAssignment()
+                }
+            }
             .store(in: &cancellables)
         reconcileMenuAssignment()
     }
