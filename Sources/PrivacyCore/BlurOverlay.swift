@@ -111,6 +111,23 @@ final class BlurOverlay {
     /// Concentric rings drawn just outside the cutout. They live *inside* the
     /// masked layer, so the even-odd mask clips them to the blurred area —
     /// they can never spill over the sharp window.
+    /// A flat colour laid over the blur, in BOTH rendering backends, so the
+    /// background can be tinted away from the screenshot's own colours — a blue
+    /// "frosted" panel instead of a literal blur of the desktop. It is a sublayer
+    /// of the masked content layer (the captured picture's `hostLayer`, or the
+    /// vibrancy view's layer), so it inherits that layer's even-odd cutout mask
+    /// and the focused window stays sharp through it. In the captured backend it
+    /// is added *before* the edge rings, so the cutout's contrast shadow still
+    /// reads on top of the tint.
+    private let tintLayer: CALayer
+    /// The colour and its opacity, remembered so `commit` can re-apply them after
+    /// a `clear()` — which hides the layer while the effect is paused without
+    /// touching these stored values.
+    private var tintColor: NSColor = .clear
+    private var tintAmount: Double = 0
+    /// Rec. 709 luminance of `tintColor`, so the cutout edge can contrast
+    /// against the *washed* background rather than the raw blur (see `edgeTone`).
+    private var tintLuminance: CGFloat = 0
     private let edgeLayers: [CAShapeLayer]
 
     /// A blurred picture waiting for the next display-link tick.
@@ -183,6 +200,17 @@ final class BlurOverlay {
             maskLayer.frame = view.bounds
             view.addSubview(effect)
             vibrancyView = effect
+
+            // The colour wash rides on the effect view's layer, so it inherits the
+            // same even-odd cutout mask and the focus window stays sharp through
+            // it — the unified tint both backends share.
+            let tint = CALayer()
+            tint.frame = view.bounds
+            tint.backgroundColor = NSColor.clear.cgColor
+            tint.opacity = 0
+            tint.contentsScale = screen.backingScaleFactor
+            effect.layer?.addSublayer(tint)
+            tintLayer = tint
         } else {
             vibrancyView = nil
             hostLayer.frame = view.bounds
@@ -194,6 +222,18 @@ final class BlurOverlay {
             hostLayer.contentsScale = screen.backingScaleFactor
             maskLayer.contentsScale = screen.backingScaleFactor
             view.layer = hostLayer
+
+            // The colour wash is a sublayer of `hostLayer`, added *before* the edge
+            // rings below, so the cutout's contrast shadow still reads on top of the
+            // tint. It inherits `hostLayer`'s mask, so the focus window stays sharp
+            // through it — the same unified tint the vibrancy backend uses.
+            let tint = CALayer()
+            tint.frame = view.bounds
+            tint.backgroundColor = NSColor.clear.cgColor
+            tint.opacity = 0
+            tint.contentsScale = screen.backingScaleFactor
+            hostLayer.addSublayer(tint)
+            tintLayer = tint
         }
 
         edgeLayers = (0..<Self.edgeRingCount).map { _ in CAShapeLayer() }
@@ -269,6 +309,61 @@ final class BlurOverlay {
     func setBlurRadius(_ radius: Double) {
         guard let vibrancyView else { return }
         vibrancyView.material = Self.vibrancyMaterial(forRadius: radius)
+        // Changing the material can rebuild the effect's layer, orphaning the
+        // tint sublayer; re-assert it immediately so the colour does not blink.
+        reattachTintIfNeeded()
+    }
+
+    /// Repaints the colour wash laid over the blur. The colour and its opacity are
+    /// remembered so `commit` can restore them after a `clear()` (see `applyTint`).
+    func setTint(color: NSColor, amount: Double) {
+        tintColor = color
+        tintAmount = min(max(amount, 0), 1)
+        tintLuminance = Self.luminance(of: color)
+        applyTint()
+    }
+
+    /// Pushes the remembered tint onto the layer. Cheap and idempotent, so it can
+    /// be called from `commit` whenever the overlay does real work — that is what
+    /// lets the colour survive a `clear()`, which hides the layer while the effect
+    /// is paused without touching the stored values.
+    private func applyTint() {
+        reattachTintIfNeeded()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        tintLayer.backgroundColor = tintColor.cgColor
+        tintLayer.opacity = Float(tintAmount)
+        CATransaction.commit()
+    }
+
+    /// Re-parents the colour wash if its host layer was replaced out from under
+    /// it. `NSVisualEffectView` can swap its backing layer when its material
+    /// changes, which would orphan the tint and drop the colour until the next
+    /// `setTint`. Re-attaching here — called from every `applyTint` — restores it
+    /// on the next commit without the user noticing.
+    private func reattachTintIfNeeded() {
+        guard tintLayer.superlayer == nil else { return }
+        if usesVibrancy {
+            if let parent = vibrancyView?.layer {
+                parent.addSublayer(tintLayer)
+            }
+        } else if let firstEdge = edgeLayers.first {
+            // `hostLayer` is stable, but if we ever re-parent we must stay *below*
+            // the edge rings so the cutout shadow still reads on top of the tint.
+            hostLayer.insertSublayer(tintLayer, below: firstEdge)
+        } else {
+            hostLayer.addSublayer(tintLayer)
+        }
+    }
+
+    /// Rec. 709 luminance of `color`, matching the scale `BlurProcessor` uses for
+    /// `surroundLuminance` so the two can be blended by opacity.
+    private nonisolated static func luminance(of color: NSColor) -> CGFloat {
+        guard let srgb = color.usingColorSpace(NSColorSpace.sRGB) else { return 0 }
+        let r = min(max(srgb.redComponent, 0), 1)
+        let g = min(max(srgb.greenComponent, 0), 1)
+        let b = min(max(srgb.blueComponent, 0), 1)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
     }
 
     /// Commits the pending picture and the revealed shapes in one transaction.
@@ -328,6 +423,9 @@ final class BlurOverlay {
             hasCommittedReveal = true
             CATransaction.commit()
         }
+        // Re-assert the colour wash whenever we commit real work, so it survives a
+        // `clear()` that hid the layer while the effect was paused.
+        applyTint()
         // The edge follows the *window* — see `Reveal.window` — and its colour
         // follows the background, so it is refreshed when either one changed.
         if windowChanged || pictureArrived {
@@ -353,6 +451,9 @@ final class BlurOverlay {
         hostLayer.contents = nil
         maskLayer.path = nil
         for layer in edgeLayers { layer.path = nil }
+        // Hide the colour wash while there is nothing blurred to tint. The stored
+        // `tintColor`/`tintAmount` are left intact so the next `commit` restores it.
+        tintLayer.opacity = 0
         CATransaction.commit()
     }
 
@@ -479,11 +580,16 @@ final class BlurOverlay {
         // Reaching here with no sample means the caller is about to be turned
         // away anyway; never fall back on a remembered seed.
         guard let luminance = surroundLuminance else { return true }
+        // The colour wash lays a flat tint over the blur, so the brightness the
+        // edge must contrast against is the wash-blended value, not the raw
+        // background. Without this, a strong tint washes the edge out — a dark
+        // wall tinted bright would keep a dark edge that disappears into it.
+        let effective = luminance * (1 - CGFloat(tintAmount)) + tintLuminance * CGFloat(tintAmount)
         let dark: Bool
         if let current = edgeIsDark {
-            dark = current ? luminance >= Self.lightBelow : luminance > Self.darkAbove
+            dark = current ? effective >= Self.lightBelow : effective > Self.darkAbove
         } else {
-            dark = luminance >= 0.5
+            dark = effective >= 0.5
         }
         edgeIsDark = dark
         return dark

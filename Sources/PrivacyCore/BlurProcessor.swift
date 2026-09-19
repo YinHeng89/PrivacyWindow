@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import CoreImage
 import Foundation
@@ -114,6 +115,11 @@ enum BlurProcessor {
         filter.setValue(prepared.clampedToExtent(), forKey: kCIInputImageKey)
         filter.setValue(blurRadius * Double(scale), forKey: kCIInputRadiusKey)
         guard let output = filter.outputImage else { return nil }
+
+        // The picture stays a plain blur. Colour is layered on top of it by
+        // `BlurOverlay` (a single `tintLayer` shared by both rendering backends),
+        // so the blurred content is never altered and the cutout stays sharp
+        // underneath the wash.
         guard let blurred = context.createCGImage(output, from: extent, format: .RGBA8, colorSpace: colorSpace) else {
             return nil
         }

@@ -103,6 +103,11 @@ final class PrivacyController: ObservableObject {
     /// differs.
     private var usesVibrancy = false
     private var blurRadius: Double = 20
+    /// Colour washed over the blurred picture. Off by default (`amount == 0`) so
+    /// the effect looks exactly as it always has; raising it tints the background
+    /// toward `blurTintColor`.
+    private var blurTintColor: NSColor = .white
+    private var blurTintAmount: Double = 0
     /// When true, the menu bar and the Dock are kept sharp (excluded from the
     /// blurred picture) instead of being blurred with everything else. On by
     /// default: they are the two things you reach for while the effect is
@@ -220,6 +225,9 @@ final class PrivacyController: ObservableObject {
     var pausesForFullScreenApps: Bool { pauseForFullScreenApps }
     var revealsCursor: Bool { cursorReveal }
     var currentCursorRevealRadius: Double { cursorRevealRadius }
+    /// The colour the blur background is washed with, and how strongly.
+    var currentBlurTintColor: NSColor { blurTintColor }
+    var currentBlurTintAmount: Double { blurTintAmount }
 
     /// Fired on every enable/disable flip, from whichever surface caused it —
     /// the menu, the settings window's master switch, a quit.
@@ -262,6 +270,8 @@ final class PrivacyController: ObservableObject {
         static let enabled = "enabled"
         static let revealCursor = "revealCursor"
         static let cursorRevealRadius = "cursorRevealRadius"
+        static let blurTintColor = "blurTintColor"
+        static let blurTintAmount = "blurTintAmount"
         static let excludedApps = "excludedApps"
     }
 
@@ -287,6 +297,12 @@ final class PrivacyController: ObservableObject {
             cursorRevealRadius = clampedCursorRevealRadius(
                 defaults.double(forKey: SettingsKey.cursorRevealRadius)
             )
+        }
+        if let hex = defaults.string(forKey: SettingsKey.blurTintColor) {
+            blurTintColor = colorFromHex(hex)
+        }
+        if defaults.object(forKey: SettingsKey.blurTintAmount) != nil {
+            blurTintAmount = min(max(defaults.double(forKey: SettingsKey.blurTintAmount), 0), 1)
         }
         if let saved = defaults.stringArray(forKey: SettingsKey.excludedApps) {
             excludedApps = ExcludedApps(saved)
@@ -492,8 +508,48 @@ final class PrivacyController: ObservableObject {
         settledFrames = 0
     }
 
+    /// Repaints the blur's colour wash. The colour is a live layer laid over the
+    /// blur in both backends, so the overlays repaint directly without re-capturing
+    /// a picture; `settledFrames` is still reset so any in-flight pass restarts.
+    func setBlurTintColor(_ color: NSColor) {
+        objectWillChange.send()
+        blurTintColor = color
+        UserDefaults.standard.set(hexString(color), forKey: SettingsKey.blurTintColor)
+        for (_, overlay) in overlays { overlay.setTint(color: color, amount: blurTintAmount) }
+        settledFrames = 0
+    }
+
+    /// Sets how strongly the colour covers the blur. 0 is off, 1 a solid fill.
+    func setBlurTintAmount(_ amount: Double) {
+        let clamped = min(max(amount, 0), 1)
+        guard blurTintAmount != clamped else { return }
+        objectWillChange.send()
+        blurTintAmount = clamped
+        UserDefaults.standard.set(clamped, forKey: SettingsKey.blurTintAmount)
+        for (_, overlay) in overlays { overlay.setTint(color: blurTintColor, amount: clamped) }
+        settledFrames = 0
+    }
+
     private func clampedCursorRevealRadius(_ radius: Double) -> Double {
         min(max(radius, Self.smallestCursorRevealRadius), Self.largestCursorRevealRadius)
+    }
+
+    /// Round-trips an `NSColor` through its sRGB hex form for `UserDefaults`,
+    /// which has no native colour type.
+    private func hexString(_ color: NSColor) -> String {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        let r = Int(round(min(max(c.redComponent, 0), 1) * 255))
+        let g = Int(round(min(max(c.greenComponent, 0), 1) * 255))
+        let b = Int(round(min(max(c.blueComponent, 0), 1) * 255))
+        return String(format: "%02X%02X%02X", r, g, b)
+    }
+
+    private func colorFromHex(_ hex: String) -> NSColor {
+        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return .white }
+        let r = CGFloat((value >> 16) & 0xFF) / 255
+        let g = CGFloat((value >> 8) & 0xFF) / 255
+        let b = CGFloat(value & 0xFF) / 255
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
     }
 
     /// Turns the cursor's clear disc on or off.
@@ -1602,6 +1658,7 @@ final class PrivacyController: ObservableObject {
                 blurRadius: blurRadius
             )
             overlay.setChromeClear(keepChrome)
+            overlay.setTint(color: blurTintColor, amount: blurTintAmount)
             overlays[id] = overlay
         }
         settledFrames = 0

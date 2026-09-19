@@ -208,6 +208,42 @@ struct AppearanceScreen: View {
                 }
             }
 
+            if match("模糊 颜色 调色 tint 背景色 背景 颜色 color background 着色 色温") {
+                SectionLabel(text: "模糊颜色")
+                GlassPanel {
+                    SettingsRow(
+                        icon: "paintpalette",
+                        title: "模糊颜色",
+                        subtitle: "给模糊背景叠加一层颜色。强度为 0 时保持原样（默认白色）。",
+                        isFirst: true,
+                        trailing: {
+                            ColorPicker("", selection: blurTintColor)
+                                .labelsHidden()
+                                .frame(width: 44, height: 22)
+                        }
+                    )
+                    SettingsRow(
+                        icon: "slider.horizontal.3",
+                        title: "颜色强度",
+                        subtitle: "颜色覆盖背景的比例：0 为关闭，1 为纯色填充。",
+                        trailing: {
+                            Text("\(Int((blurTintAmount.wrappedValue * 100).rounded()))%")
+                                .font(PW.T.mono())
+                                .foregroundStyle(PW.C.text1(scheme))
+                        },
+                        below: {
+                            GlassSlider(
+                                value: blurTintAmount,
+                                range: 0...1,
+                                step: 0.05,
+                                accessibilityLabel: "模糊颜色强度"
+                            )
+                            .padding(.top, 6)
+                        }
+                    )
+                }
+            }
+
             if match("鼠标 光标 圆盘 清晰 cursor halo reveal 指针") {
                 SectionLabel(text: "鼠标周围")
                 GlassPanel {
@@ -297,6 +333,15 @@ struct AppearanceScreen: View {
 
     private var blurRadius: Binding<Double> {
         Binding(get: { privacy.currentBlurRadius }, set: { privacy.setBlurRadius($0) })
+    }
+    private var blurTintColor: Binding<Color> {
+        Binding(
+            get: { Color(privacy.currentBlurTintColor) },
+            set: { privacy.setBlurTintColor(NSColor($0)) }
+        )
+    }
+    private var blurTintAmount: Binding<Double> {
+        Binding(get: { privacy.currentBlurTintAmount }, set: { privacy.setBlurTintAmount($0) })
     }
     private var cursorRadius: Binding<Double> {
         Binding(get: { privacy.currentCursorRevealRadius }, set: { privacy.setCursorRevealRadius($0) })
