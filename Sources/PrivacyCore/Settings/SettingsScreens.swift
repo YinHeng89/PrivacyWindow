@@ -496,6 +496,10 @@ private struct ExcludedAppAddRow: View {
     /// are left out on purpose: an app without windows in front is not a state
     /// the exclusion rule can observe.
     @State private var candidates: [NSRunningApplication] = []
+    @State private var isOpen = false
+    /// The `processIdentifier` of the candidate under the cursor, for the
+    /// hover highlight inside the popover; `nil` when none is.
+    @State private var hovering: pid_t?
 
     private static func runningCandidates() -> [NSRunningApplication] {
         NSWorkspace.shared.runningApplications
@@ -518,35 +522,57 @@ private struct ExcludedAppAddRow: View {
             }
             Spacer(minLength: PW.S.s3)
             if !candidates.isEmpty {
-                Menu {
-                    ForEach(candidates, id: \.processIdentifier) { app in
-                        Button {
-                            if let id = app.bundleIdentifier { privacy.addExcludedApp(bundleID: id) }
-                        } label: {
-                            HStack {
-                                if let icon = app.icon {
-                                    Image(nsImage: icon).resizable().frame(width: 16, height: 16)
+                // Same construction as `GlassPicker`: a plain HStack trigger
+                // with a trailing chevron, options presented in a hand-rolled
+                // popover. SwiftUI's `Menu` on macOS 26 injects its own chrome
+                // into the label (chevron ahead of the text, capsule dropped),
+                // so the machinery is avoided entirely — see the note there.
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(I18n.shared.t("添加"))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(PW.C.text3(scheme))
+                }
+                .font(PW.T.body())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: PW.R.control).fill(PW.C.control(scheme)))
+                .overlay(RoundedRectangle(cornerRadius: PW.R.control).strokeBorder(PW.C.edgeRing(scheme), lineWidth: 0.5))
+                .foregroundStyle(PW.C.text1(scheme))
+                .contentShape(RoundedRectangle(cornerRadius: PW.R.control))
+                .onTapGesture { isOpen = true }
+                .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(candidates, id: \.processIdentifier) { app in
+                                Button {
+                                    if let id = app.bundleIdentifier { privacy.addExcludedApp(bundleID: id) }
+                                    isOpen = false
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        if let icon = app.icon {
+                                            Image(nsImage: icon).resizable().interpolation(.high)
+                                                .frame(width: 16, height: 16)
+                                        }
+                                        Text(app.localizedName ?? app.bundleIdentifier ?? I18n.shared.t("未知应用"))
+                                            .font(PW.T.body())
+                                        Spacer(minLength: 12)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(RoundedRectangle(cornerRadius: 6).fill(hovering == app.processIdentifier ? Color.primary.opacity(0.08) : Color.clear))
+                                    .contentShape(Rectangle())
+                                    .onHover { hovering = $0 ? app.processIdentifier : nil }
                                 }
-                                Text(app.localizedName ?? app.bundleIdentifier ?? I18n.shared.t("未知应用"))
+                                .buttonStyle(.plain)
                             }
                         }
+                        .padding(6)
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus")
-                        Text(i18n.t("添加"))
-                    }
-                    .font(PW.T.body())
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule().fill(PW.C.control(scheme))
-                    )
-                    .overlay(Capsule().strokeBorder(PW.C.edgeRing(scheme), lineWidth: 0.5))
+                    .frame(width: 220, height: min(CGFloat(candidates.count) * 30 + 12, 264))
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.visible)
-                .fixedSize()
             }
         }
         .padding(.horizontal, PW.S.s4)
