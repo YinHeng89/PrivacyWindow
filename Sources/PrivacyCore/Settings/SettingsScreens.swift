@@ -485,6 +485,21 @@ private struct ExcludedAppRow: View {
     }
 }
 
+/// Target for the native add-app menu items. `NSMenuItem.target` is unsafe
+/// (unowned), so this must outlive the pop-up — the synchronous
+/// `NSMenu.popUpContextMenu` call keeps it alive through its local.
+private final class AddAppMenuTarget: NSObject {
+    let onPick: (String) -> Void
+
+    init(onPick: @escaping (String) -> Void) {
+        self.onPick = onPick
+    }
+
+    @objc func pick(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? String { onPick(id) }
+    }
+}
+
 /// The "add an app" row: a menu of everything running, so the list can be
 /// built without typing bundle identifiers.
 private struct ExcludedAppAddRow: View {
@@ -496,10 +511,6 @@ private struct ExcludedAppAddRow: View {
     /// are left out on purpose: an app without windows in front is not a state
     /// the exclusion rule can observe.
     @State private var candidates: [NSRunningApplication] = []
-    @State private var isOpen = false
-    /// The `processIdentifier` of the candidate under the cursor, for the
-    /// hover highlight inside the popover; `nil` when none is.
-    @State private var hovering: pid_t?
 
     private static func runningCandidates() -> [NSRunningApplication] {
         NSWorkspace.shared.runningApplications
@@ -507,6 +518,30 @@ private struct ExcludedAppAddRow: View {
             .sorted {
                 ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending
             }
+    }
+
+    /// Builds the system-style picker menu: one item per running app, with its
+    /// icon. `onPick` is routed through `AddAppMenuTarget`, which must outlive
+    /// the synchronous pop-up — it does, because the local holding it lives in
+    /// the closure that pops the menu up.
+    private static func makeNativeMenu(candidates: [NSRunningApplication], onPick: @escaping (String) -> Void) -> NSMenu {
+        let menu = NSMenu()
+        let target = AddAppMenuTarget(onPick: onPick)
+        for app in candidates {
+            let item = NSMenuItem(
+                title: app.localizedName ?? app.bundleIdentifier ?? I18n.shared.t("未知应用"),
+                action: #selector(AddAppMenuTarget.pick(_:)),
+                keyEquivalent: ""
+            )
+            item.target = target
+            item.representedObject = app.bundleIdentifier
+            if let icon = app.icon?.copy() as? NSImage {
+                icon.size = NSSize(width: 16, height: 16)
+                item.image = icon
+            }
+            menu.addItem(item)
+        }
+        return menu
     }
 
     var body: some View {
@@ -522,11 +557,13 @@ private struct ExcludedAppAddRow: View {
             }
             Spacer(minLength: PW.S.s3)
             if !candidates.isEmpty {
-                // Same construction as `GlassPicker`: a plain HStack trigger
-                // with a trailing chevron, options presented in a hand-rolled
-                // popover. SwiftUI's `Menu` on macOS 26 injects its own chrome
-                // into the label (chevron ahead of the text, capsule dropped),
-                // so the machinery is avoided entirely — see the note there.
+                // Trigger is a plain HStack — SwiftUI's `Menu` on macOS 26
+                // injects its own chrome into the label (chevron ahead of the
+                // text, background dropped), so the machinery is avoided for
+                // the label. The option list, though, keeps the *native* menu
+                // presentation the user asked to keep: an AppKit `NSMenu` is
+                // popped up at the click, giving the standard system menu look
+                // with app icons, without letting SwiftUI restyle anything.
                 HStack(spacing: 6) {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .semibold))
@@ -542,36 +579,28 @@ private struct ExcludedAppAddRow: View {
                 .overlay(RoundedRectangle(cornerRadius: PW.R.control).strokeBorder(PW.C.edgeRing(scheme), lineWidth: 0.5))
                 .foregroundStyle(PW.C.text1(scheme))
                 .contentShape(RoundedRectangle(cornerRadius: PW.R.control))
-                .onTapGesture { isOpen = true }
-                .popover(isPresented: $isOpen, arrowEdge: .bottom) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(candidates, id: \.processIdentifier) { app in
-                                Button {
-                                    if let id = app.bundleIdentifier { privacy.addExcludedApp(bundleID: id) }
-                                    isOpen = false
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        if let icon = app.icon {
-                                            Image(nsImage: icon).resizable().interpolation(.high)
-                                                .frame(width: 16, height: 16)
-                                        }
-                                        Text(app.localizedName ?? app.bundleIdentifier ?? I18n.shared.t("未知应用"))
-                                            .font(PW.T.body())
-                                        Spacer(minLength: 12)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(RoundedRectangle(cornerRadius: 6).fill(hovering == app.processIdentifier ? Color.primary.opacity(0.08) : Color.clear))
-                                    .contentShape(Rectangle())
-                                    .onHover { hovering = $0 ? app.processIdentifier : nil }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(6)
+                .onTapGesture {
+                    let menu = Self.makeNativeMenu(candidates: candidates) { id in
+                        privacy.addExcludedApp(bundleID: id)
                     }
-                    .frame(width: 220, height: min(CGFloat(candidates.count) * 30 + 12, 264))
+                    // `popUpContextMenu` presents at the event's location. The
+                    // tap gesture's mouse-up is the current event; the fallback
+                    // synthesizes one at the cursor so the menu still lands in
+                    // the right place.
+                    let event = NSApp.currentEvent ?? NSEvent.mouseEvent(
+                        with: .leftMouseUp,
+                        location: NSEvent.mouseLocation,
+                        modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: 0,
+                        context: nil,
+                        eventNumber: 0,
+                        clickCount: 1,
+                        pressure: 1
+                    )!
+                    if let anchor = NSApp.keyWindow?.contentView ?? NSApp.windows.first(where: \.isVisible)?.contentView {
+                        NSMenu.popUpContextMenu(menu, with: event, for: anchor)
+                    }
                 }
             }
         }
