@@ -485,21 +485,6 @@ private struct ExcludedAppRow: View {
     }
 }
 
-/// Target for the native add-app menu items. `NSMenuItem.target` is unsafe
-/// (unowned), so this must outlive the pop-up — the synchronous
-/// `NSMenu.popUpContextMenu` call keeps it alive through its local.
-private final class AddAppMenuTarget: NSObject {
-    let onPick: (String) -> Void
-
-    init(onPick: @escaping (String) -> Void) {
-        self.onPick = onPick
-    }
-
-    @objc func pick(_ sender: NSMenuItem) {
-        if let id = sender.representedObject as? String { onPick(id) }
-    }
-}
-
 /// The "add an app" row: a menu of everything running, so the list can be
 /// built without typing bundle identifiers.
 private struct ExcludedAppAddRow: View {
@@ -520,30 +505,6 @@ private struct ExcludedAppAddRow: View {
             }
     }
 
-    /// Builds the system-style picker menu: one item per running app, with its
-    /// icon. `onPick` is routed through `AddAppMenuTarget`, which must outlive
-    /// the synchronous pop-up — it does, because the local holding it lives in
-    /// the closure that pops the menu up.
-    private static func makeNativeMenu(candidates: [NSRunningApplication], onPick: @escaping (String) -> Void) -> NSMenu {
-        let menu = NSMenu()
-        let target = AddAppMenuTarget(onPick: onPick)
-        for app in candidates {
-            let item = NSMenuItem(
-                title: app.localizedName ?? app.bundleIdentifier ?? I18n.shared.t("未知应用"),
-                action: #selector(AddAppMenuTarget.pick(_:)),
-                keyEquivalent: ""
-            )
-            item.target = target
-            item.representedObject = app.bundleIdentifier
-            if let icon = app.icon?.copy() as? NSImage {
-                icon.size = NSSize(width: 16, height: 16)
-                item.image = icon
-            }
-            menu.addItem(item)
-        }
-        return menu
-    }
-
     var body: some View {
         HStack(spacing: PW.S.s3) {
             IconTile(systemName: "plus", tint: .neutral)
@@ -557,51 +518,35 @@ private struct ExcludedAppAddRow: View {
             }
             Spacer(minLength: PW.S.s3)
             if !candidates.isEmpty {
-                // Trigger is a plain HStack — SwiftUI's `Menu` on macOS 26
-                // injects its own chrome into the label (chevron ahead of the
-                // text, background dropped), so the machinery is avoided for
-                // the label. The option list, though, keeps the *native* menu
-                // presentation the user asked to keep: an AppKit `NSMenu` is
-                // popped up at the click, giving the standard system menu look
-                // with app icons, without letting SwiftUI restyle anything.
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(I18n.shared.t("添加"))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(PW.C.text3(scheme))
-                }
-                .font(PW.T.body())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: PW.R.control).fill(PW.C.control(scheme)))
-                .overlay(RoundedRectangle(cornerRadius: PW.R.control).strokeBorder(PW.C.edgeRing(scheme), lineWidth: 0.5))
-                .foregroundStyle(PW.C.text1(scheme))
-                .contentShape(RoundedRectangle(cornerRadius: PW.R.control))
-                .onTapGesture {
-                    let menu = Self.makeNativeMenu(candidates: candidates) { id in
-                        privacy.addExcludedApp(bundleID: id)
+                Menu {
+                    ForEach(candidates, id: \.processIdentifier) { app in
+                        Button {
+                            if let id = app.bundleIdentifier { privacy.addExcludedApp(bundleID: id) }
+                        } label: {
+                            HStack {
+                                if let icon = app.icon {
+                                    Image(nsImage: icon).resizable().frame(width: 16, height: 16)
+                                }
+                                Text(app.localizedName ?? app.bundleIdentifier ?? I18n.shared.t("未知应用"))
+                            }
+                        }
                     }
-                    // `popUpContextMenu` presents at the event's location. The
-                    // tap gesture's mouse-up is the current event; the fallback
-                    // synthesizes one at the cursor so the menu still lands in
-                    // the right place.
-                    let event = NSApp.currentEvent ?? NSEvent.mouseEvent(
-                        with: .leftMouseUp,
-                        location: NSEvent.mouseLocation,
-                        modifierFlags: [],
-                        timestamp: ProcessInfo.processInfo.systemUptime,
-                        windowNumber: 0,
-                        context: nil,
-                        eventNumber: 0,
-                        clickCount: 1,
-                        pressure: 1
-                    )!
-                    if let anchor = NSApp.keyWindow?.contentView ?? NSApp.windows.first(where: \.isVisible)?.contentView {
-                        NSMenu.popUpContextMenu(menu, with: event, for: anchor)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                        Text(i18n.t("添加"))
                     }
+                    .font(PW.T.body())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule().fill(PW.C.control(scheme))
+                    )
+                    .overlay(Capsule().strokeBorder(PW.C.edgeRing(scheme), lineWidth: 0.5))
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.visible)
+                .fixedSize()
             }
         }
         .padding(.horizontal, PW.S.s4)
