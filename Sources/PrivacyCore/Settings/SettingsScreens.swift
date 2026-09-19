@@ -71,6 +71,30 @@ struct GeneralScreen: View {
                 }
             }
 
+            if match("登录 开机 自启 启动 后台 login startup boot launch 自动") {
+                SectionLabel(text: "登录项")
+                GlassPanel {
+                    SettingsRow(
+                        icon: "power",
+                        title: "登录时启动",
+                        subtitle: "登录 macOS 后自动在后台运行，隐私保护不中断。",
+                        isFirst: true,
+                        trailing: { GlassSwitch(isOn: preferences.binding(\.launchAtLogin)) },
+                        below: {
+                            if !LoginItem.canRegister {
+                                Callout(
+                                    title: "未从应用包运行",
+                                    message: "当前不是从打包的 .app 启动，自启设置会在你从「应用程序」打开后自动生效。",
+                                    systemImage: "exclamationmark.triangle",
+                                    tint: PW.C.orange
+                                )
+                                .padding(.top, 6)
+                            }
+                        }
+                    )
+                }
+            }
+
             if match("外观 配色 浅色 深色 主题 appearance theme dark light") {
                 SectionLabel(text: "外观")
                 GlassPanel {

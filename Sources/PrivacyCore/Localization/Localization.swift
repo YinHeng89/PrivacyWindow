@@ -139,6 +139,13 @@ final class I18n: ObservableObject {
         "菜单栏": "Menu Bar",
         "左键点击图标": "Left-Click the Icon",
         "右键任何时候都打开菜单。": "Right-click always opens the menu.",
+        "登录项": "Login Item",
+        "登录时启动": "Launch at Login",
+        "登录 macOS 后自动在后台运行，隐私保护不中断。":
+            "Starts automatically in the background after you log in, so privacy protection is never interrupted.",
+        "未从应用包运行": "Not Running from an App Bundle",
+        "当前不是从打包的 .app 启动，自启设置会在你从「应用程序」打开后自动生效。":
+            "This build is not a packaged .app, so the setting takes effect once you open the app from Applications.",
         "设置窗口配色": "Settings Window Theme",
         "仅影响这个窗口，不影响模糊效果。":
             "Affects only this window, not the blur effect.",

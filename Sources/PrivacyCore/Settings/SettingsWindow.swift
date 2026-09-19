@@ -58,6 +58,7 @@ final class SettingsPreferences: ObservableObject {
     private enum Key {
         static let menuBarClickAction = "settings.menuBarClickAction"
         static let colorScheme = "settings.colorScheme"
+        static let launchAtLogin = "settings.launchAtLogin"
     }
 
     @Published var menuBarClickAction: MenuBarClickAction {
@@ -65,6 +66,14 @@ final class SettingsPreferences: ObservableObject {
     }
     @Published var colorScheme: AppearancePreference {
         didSet { UserDefaults.standard.set(colorScheme.rawValue, forKey: Key.colorScheme) }
+    }
+    /// 是否「登录时启动」。这是用户的意图：立刻落到 `SMAppService`，并在每次启动时
+    /// 由 `reconcileLaunchItem()` 对齐到系统，保证从开发态换成打包 `.app` 后自启自愈。
+    @Published var launchAtLogin: Bool {
+        didSet {
+            UserDefaults.standard.set(launchAtLogin, forKey: Key.launchAtLogin)
+            LoginItem.apply(launchAtLogin)
+        }
     }
 
     private init() {
@@ -75,6 +84,16 @@ final class SettingsPreferences: ObservableObject {
         colorScheme = AppearancePreference(
             rawValue: defaults.string(forKey: Key.colorScheme) ?? ""
         ) ?? .system
+        launchAtLogin = defaults.bool(forKey: Key.launchAtLogin)
+    }
+
+    /// 应用启动时调用：把「登录时启动」的登录项对齐到当前偏好（双向）。
+    ///
+    /// 开启时确保已注册；关闭时确保已注销。从 `build/PrivacyWindow.app` 之类位置换成
+    /// /Applications 下的正式副本后，旧的登录项会指向失效路径，这里按意图重新注册到
+    /// 当前 `.app`，无需用户手动干预；偏好为关时则清理掉可能残留的登录项。
+    func reconcileLaunchItem() {
+        _ = LoginItem.apply(launchAtLogin)
     }
 
     /// A two-way binding to any stored preference, so controls can be written as

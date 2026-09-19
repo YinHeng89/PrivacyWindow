@@ -16,6 +16,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         privacy.restoreSettings()
+        // 按用户偏好把「登录时启动」对齐到系统：从开发态换成打包 .app 后这一步会让
+        // 自启自愈，旧的失效登录项会被覆盖到当前 app 路径。
+        preferences.reconcileLaunchItem()
         let window = SettingsWindowController(privacy: privacy, preferences: preferences)
         settingsWindow = window
         statusController = StatusItemController(
