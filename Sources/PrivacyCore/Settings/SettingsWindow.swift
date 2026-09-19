@@ -301,7 +301,7 @@ struct SettingsRootView: View {
                     // Search spans every tab, not just the visible one. Each
                     // screen renders only its matching sections, and screens
                     // with no matches contribute nothing.
-                    PageHeader("搜索", subtitle: I18n.shared.t("全部设置中匹配「%@」的结果。按 ⎋ 清除。", searchText))
+                    PageHeader("搜索…", subtitle: I18n.shared.t("全部设置中匹配「%@」的结果。按 ⎋ 清除。", searchText))
                     GeneralScreen(search: searchText)
                     AppearanceScreen(search: searchText)
                     BehaviorScreen(search: searchText)

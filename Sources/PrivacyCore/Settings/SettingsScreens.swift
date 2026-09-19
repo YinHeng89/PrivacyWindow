@@ -207,7 +207,7 @@ struct AppearanceScreen: View {
                                 value: blurRadius,
                                 range: PrivacyController.smallestBlurRadius...PrivacyController.largestBlurRadius,
                                 step: 1,
-                                accessibilityLabel: "模糊半径"
+                                accessibilityLabel: I18n.shared.t("模糊半径")
                             )
                             .padding(.top, 6)
                             .opacity(blurEnabled.wrappedValue ? 1 : 0.4)
@@ -245,7 +245,7 @@ struct AppearanceScreen: View {
                                 value: blurTintAmount,
                                 range: 0...1,
                                 step: 0.05,
-                                accessibilityLabel: "模糊颜色强度"
+                                accessibilityLabel: I18n.shared.t("模糊颜色强度")
                             )
                             .padding(.top, 6)
                         }

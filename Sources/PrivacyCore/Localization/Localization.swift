@@ -163,8 +163,8 @@ final class I18n: ObservableObject {
         "设置界面与菜单显示的语言。": "The language of the interface and menus.",
 
         // --- Appearance ---
-        "模糊的强度，以及鼠标周围那块清晰区域。":
-            "Blur strength, and the clear area around the cursor.",
+        "模糊的强度、鼠标周围那块清晰区域，以及设置窗口的配色与语言。":
+            "Blur strength, the clear area around the cursor, and the settings window's theme and language.",
         "模糊": "Blur",
         "降级模式": "Fallback Mode",
         "未授权屏幕录制，模糊由系统合成，强度只能近似。授权后自动恢复精确半径。":
@@ -185,6 +185,17 @@ final class I18n: ObservableObject {
         "中度": "Medium",
         "强度": "Strong",
         "极强": "Extreme",
+
+        // --- Appearance: blur color (added with the tint feature) ---
+        "模糊颜色": "Blur Color",
+        "给模糊背景叠加一层颜色。强度为 0 时保持原样（默认白色）。":
+            "Lays a color over the blurred background. At zero strength it stays unchanged (white by default).",
+        "颜色强度": "Color Strength",
+        "颜色覆盖背景的比例：0 为关闭，1 为纯色填充。":
+            "How much of the background the color covers: 0 is off, 1 is a solid fill.",
+        "关闭后不再做高斯模糊；颜色覆盖仍可单独生效。":
+            "When off, no Gaussian blur is applied; the color overlay still works on its own.",
+        "模糊颜色强度": "Blur Color Strength",
 
         // --- Behavior ---
         "什么时候让位，以及让位给谁。": "When to stand down, and to whom.",
@@ -274,4 +285,8 @@ final class I18n: ObservableObject {
             "The Screen Recording permission is now in effect, but macOS only reads it once at launch — the current process can't get any frames, so the blur won't change. Just reopen the app.",
         "重新打开": "Reopen",
     ]
+
+    /// Every Chinese source string the app can translate to English. Exposed for
+    /// tests that guard against a UI string silently losing its translation.
+    static var englishKeys: Set<String> { Set(en.keys) }
 }
