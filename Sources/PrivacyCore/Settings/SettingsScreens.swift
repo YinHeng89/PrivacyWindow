@@ -95,46 +95,6 @@ struct GeneralScreen: View {
                 }
             }
 
-            if match("外观 配色 浅色 深色 主题 appearance theme dark light") {
-                SectionLabel(text: "外观")
-                GlassPanel {
-                    SettingsRow(
-                        icon: "sun.max",
-                        title: "设置窗口配色",
-                        subtitle: "仅影响这个窗口，不影响模糊效果。",
-                        isFirst: true,
-                        trailing: {
-                            GlassPicker(
-                                selection: preferences.binding(\.colorScheme),
-                                items: AppearancePreference.allCases,
-                                label: { $0.label }
-                            )
-                        }
-                    )
-                }
-            }
-
-            if match("语言 language 界面 显示 英文 中文 切换") {
-                SectionLabel(text: "语言")
-                GlassPanel {
-                    SettingsRow(
-                        icon: "globe",
-                        title: "语言",
-                        subtitle: "设置界面与菜单显示的语言。",
-                        isFirst: true,
-                        trailing: {
-                            GlassPicker(
-                                selection: Binding(
-                                    get: { I18n.shared.language },
-                                    set: { I18n.shared.language = $0 }
-                                ),
-                                items: AppLanguage.allCases,
-                                label: { $0.label }
-                            )
-                        }
-                    )
-                }
-            }
         }
     }
 
@@ -193,13 +153,14 @@ struct GeneralScreen: View {
 
 struct AppearanceScreen: View {
     @EnvironmentObject var privacy: PrivacyController
+    @EnvironmentObject var preferences: SettingsPreferences
     @Environment(\.colorScheme) var scheme
     var search: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if search.isEmpty {
-                PageHeader("外观", subtitle: "模糊的强度，以及鼠标周围那块清晰区域。")
+                PageHeader("外观", subtitle: "模糊的强度、鼠标周围那块清晰区域，以及设置窗口的配色与语言。")
             }
 
             if match("模糊 强度 radius 半径 blur strength") {
@@ -278,6 +239,47 @@ struct AppearanceScreen: View {
                             }
                         )
                     }
+                }
+            }
+
+            if match("外观 配色 浅色 深色 主题 appearance theme dark light") {
+                SectionLabel(text: "外观")
+                GlassPanel {
+                    SettingsRow(
+                        icon: "sun.max",
+                        title: "设置窗口配色",
+                        subtitle: "仅影响这个窗口，不影响模糊效果。",
+                        isFirst: true,
+                        trailing: {
+                            GlassPicker(
+                                selection: preferences.binding(\.colorScheme),
+                                items: AppearancePreference.allCases,
+                                label: { $0.label }
+                            )
+                        }
+                    )
+                }
+            }
+
+            if match("语言 language 界面 显示 英文 中文 切换") {
+                SectionLabel(text: "语言")
+                GlassPanel {
+                    SettingsRow(
+                        icon: "globe",
+                        title: "语言",
+                        subtitle: "设置界面与菜单显示的语言。",
+                        isFirst: true,
+                        trailing: {
+                            GlassPicker(
+                                selection: Binding(
+                                    get: { I18n.shared.language },
+                                    set: { I18n.shared.language = $0 }
+                                ),
+                                items: AppLanguage.allCases,
+                                label: { $0.label }
+                            )
+                        }
+                    )
                 }
             }
         }
