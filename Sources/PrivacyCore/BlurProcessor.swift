@@ -81,7 +81,11 @@ enum BlurProcessor {
     ///   - hole: the cutout in **image pixel coordinates with a bottom-left
     ///     origin** (Core Image's convention). `nil` blurs the whole picture.
     ///   - blurRadius: blur radius in points.
-    static func blur(image: CGImage, scale: CGFloat, hole: CGRect?, blurRadius: Double) -> BlurredFrame? {
+    ///   - blurEnabled: when `false` the Gaussian step is skipped entirely and
+    ///     the (still hole-inpainted) sharp screenshot is returned. The colour
+    ///     wash `BlurOverlay` lays on top is unaffected, so "colour on its own"
+    ///     — turning blur off while keeping the tint — falls out for free.
+    static func blur(image: CGImage, scale: CGFloat, hole: CGRect?, blurRadius: Double, blurEnabled: Bool = true) -> BlurredFrame? {
         let base = CIImage(cgImage: image)
         let extent = base.extent
         let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
@@ -106,21 +110,30 @@ enum BlurProcessor {
             prepared = base
         }
 
-        // Sample the *clamped* image (edge pixels repeated outward, rather than
-        // transparent) when blurring. CIGaussianBlur otherwise feathers the
-        // outermost ~r points toward transparent, leaving a clear border that
-        // revealed the sharp live desktop on a "fully blurred" screen. Clamping
-        // keeps the blur opaque right up to the bezel.
-        guard let filter = CIFilter(name: "CIGaussianBlur") else { return nil }
-        filter.setValue(prepared.clampedToExtent(), forKey: kCIInputImageKey)
-        filter.setValue(blurRadius * Double(scale), forKey: kCIInputRadiusKey)
-        guard let output = filter.outputImage else { return nil }
+        // The source that becomes the overlay picture. With blur disabled we keep
+        // the sharp (hole-inpainted) screenshot; the colour wash laid on top by
+        // `BlurOverlay` is unchanged, so the tint still takes effect on its own.
+        let source: CIImage
+        if blurEnabled {
+            // Sample the *clamped* image (edge pixels repeated outward, rather
+            // than transparent) when blurring. CIGaussianBlur otherwise feathers
+            // the outermost ~r points toward transparent, leaving a clear border
+            // that revealed the sharp live desktop on a "fully blurred" screen.
+            // Clamping keeps the blur opaque right up to the bezel.
+            guard let filter = CIFilter(name: "CIGaussianBlur") else { return nil }
+            filter.setValue(prepared.clampedToExtent(), forKey: kCIInputImageKey)
+            filter.setValue(blurRadius * Double(scale), forKey: kCIInputRadiusKey)
+            guard let output = filter.outputImage else { return nil }
+            source = output
+        } else {
+            source = prepared
+        }
 
-        // The picture stays a plain blur. Colour is layered on top of it by
-        // `BlurOverlay` (a single `tintLayer` shared by both rendering backends),
-        // so the blurred content is never altered and the cutout stays sharp
-        // underneath the wash.
-        guard let blurred = context.createCGImage(output, from: extent, format: .RGBA8, colorSpace: colorSpace) else {
+        // The picture is a plain blur — or, with blur disabled, the plain
+        // screenshot. Colour is layered on top of it by `BlurOverlay` (a single
+        // `tintLayer` shared by both rendering backends), so the underlying
+        // content is never altered and the cutout stays sharp underneath the wash.
+        guard let blurred = context.createCGImage(source, from: extent, format: .RGBA8, colorSpace: colorSpace) else {
             return nil
         }
         return BlurredFrame(image: blurred, scale: scale, surroundLuminance: luminance)

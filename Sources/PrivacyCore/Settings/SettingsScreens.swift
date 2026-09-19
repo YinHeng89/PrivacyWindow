@@ -179,12 +179,19 @@ struct AppearanceScreen: View {
                         )
                     }
                     SettingsRow(
+                        icon: "aperture",
+                        title: "模糊",
+                        subtitle: "关闭后不再做高斯模糊；颜色覆盖仍可单独生效。",
+                        isFirst: !privacy.runsOnVibrancyFallback,
+                        trailing: { GlassSwitch(isOn: blurEnabled) }
+                    )
+                    SettingsRow(
                         icon: "drop",
                         title: "模糊半径",
                         subtitle: privacy.runsOnVibrancyFallback
                             ? "当前按系统材质分档近似，无法逐点控制。"
                             : "越大越糊，也越费一帧的算力。",
-                        isFirst: !privacy.runsOnVibrancyFallback,
+                        isFirst: false,
                         trailing: {
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text("\(Int(privacy.currentBlurRadius.rounded())) pt")
@@ -203,6 +210,8 @@ struct AppearanceScreen: View {
                                 accessibilityLabel: "模糊半径"
                             )
                             .padding(.top, 6)
+                            .opacity(blurEnabled.wrappedValue ? 1 : 0.4)
+                            .allowsHitTesting(blurEnabled.wrappedValue)
                         }
                     )
                 }
@@ -333,6 +342,9 @@ struct AppearanceScreen: View {
 
     private var blurRadius: Binding<Double> {
         Binding(get: { privacy.currentBlurRadius }, set: { privacy.setBlurRadius($0) })
+    }
+    private var blurEnabled: Binding<Bool> {
+        Binding(get: { privacy.currentBlurEnabled }, set: { privacy.setBlurEnabled($0) })
     }
     private var blurTintColor: Binding<Color> {
         Binding(

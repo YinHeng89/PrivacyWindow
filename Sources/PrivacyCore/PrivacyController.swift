@@ -102,6 +102,11 @@ final class PrivacyController: ObservableObject {
     /// even-odd mask, the union rule, the window level. Only the backdrop
     /// differs.
     private var usesVibrancy = false
+    /// When `false` the Gaussian blur is skipped; the overlay shows the sharp
+    /// (still hole-inpainted) screenshot instead, with the colour wash on top.
+    /// Colour is a layer above the blur, so turning blur off leaves the tint
+    /// working on its own. Persisted so the choice survives a quit.
+    private var blurEnabled: Bool = true
     private var blurRadius: Double = 20
     /// Colour washed over the blurred picture. Off by default (`amount == 0`) so
     /// the effect looks exactly as it always has; raising it tints the background
@@ -221,6 +226,10 @@ final class PrivacyController: ObservableObject {
 
     var isEnabled: Bool { enabled }
     var currentBlurRadius: Double { blurRadius }
+    /// Whether the Gaussian blur runs. `false` keeps the colour wash but drops
+    /// the blur, so the background is sharp (or, without Screen Recording, a
+    /// flat colour panel) while tint still applies.
+    var currentBlurEnabled: Bool { blurEnabled }
     var keepsChromeClear: Bool { keepChrome }
     var pausesForFullScreenApps: Bool { pauseForFullScreenApps }
     var revealsCursor: Bool { cursorReveal }
@@ -251,7 +260,7 @@ final class PrivacyController: ObservableObject {
     /// Whether the running session is on the system-blur fallback rather than
     /// on captured pixels. The settings window uses it to describe the mode
     /// honestly — the strength slider does not mean the same thing in both.
-    var runsOnVibrancyFallback: Bool { enabled && usesVibrancy }
+    var runsOnVibrancyFallback: Bool { enabled && usesVibrancy && blurEnabled }
 
     /// Blur radius bounds, in points. Beyond the upper bound the blur has eaten
     /// the screen entirely and every extra step only costs pixels and CPU; below
@@ -265,6 +274,7 @@ final class PrivacyController: ObservableObject {
     /// itself survive a quit.
     private enum SettingsKey {
         static let blurRadius = "blurRadius"
+        static let blurEnabled = "blurEnabled"
         static let keepChrome = "keepChrome"
         static let pauseFullScreen = "pauseFullScreen"
         static let enabled = "enabled"
@@ -282,6 +292,9 @@ final class PrivacyController: ObservableObject {
         let defaults = UserDefaults.standard
         if defaults.object(forKey: SettingsKey.blurRadius) != nil {
             blurRadius = min(max(defaults.double(forKey: SettingsKey.blurRadius), 10), 40)
+        }
+        if defaults.object(forKey: SettingsKey.blurEnabled) != nil {
+            blurEnabled = defaults.bool(forKey: SettingsKey.blurEnabled)
         }
         if defaults.object(forKey: SettingsKey.keepChrome) != nil {
             keepChrome = defaults.bool(forKey: SettingsKey.keepChrome)
@@ -506,6 +519,22 @@ final class PrivacyController: ObservableObject {
         // Wakes the capture loop: a settled loop would otherwise take up to
         // 33ms to pick up the new radius.
         settledFrames = 0
+    }
+
+    /// Turns the Gaussian blur on or off. With it off the colour wash still
+    /// applies, so this is "blur or not", never "blur and colour".
+    ///
+    /// Toggling rebuilds the overlays, because the backend construction depends on
+    /// it: with blur off the system-blur (`NSVisualEffectView`) backend is
+    /// unsuitable — it cannot not blur — so a machine without Screen Recording
+    /// falls back to a flat colour panel instead. Rebuilding also re-applies the
+    /// current tint and chrome settings, so nothing else needs touching here.
+    func setBlurEnabled(_ on: Bool) {
+        guard blurEnabled != on else { return }
+        objectWillChange.send()
+        blurEnabled = on
+        UserDefaults.standard.set(on, forKey: SettingsKey.blurEnabled)
+        rebuildOverlays(animate: false)
     }
 
     /// Repaints the blur's colour wash. The colour is a live layer laid over the
@@ -1333,6 +1362,7 @@ final class PrivacyController: ObservableObject {
         let generation = self.generation
         let snapshot = focus
         let radius = blurRadius
+        let blurOn = blurEnabled
         let keepChrome = keepChrome
         // A snapshot, because the loop below awaits and the dictionary must not
         // change underneath it — and so results are written to the overlays
@@ -1394,7 +1424,7 @@ final class PrivacyController: ObservableObject {
             // of the frame and must never stall the cutout.
             let blurred = await Task.detached(priority: .userInitiated) {
                 autoreleasepool {
-                    BlurProcessor.blur(image: image, scale: scale, hole: hole, blurRadius: radius)
+                    BlurProcessor.blur(image: image, scale: scale, hole: hole, blurRadius: radius, blurEnabled: blurOn)
                 }
             }.value
             // A pass started against a window that is no longer the focus is
@@ -1667,10 +1697,14 @@ final class PrivacyController: ObservableObject {
         capturer.invalidateFilters()
         for screen in NSScreen.screens {
             guard let id = screen.displayID else { continue }
+            // The system-blur backend cannot be "not blurred", so when blur is
+            // off we never build it: a machine without Screen Recording then
+            // falls back to a flat colour panel rather than a blurred one.
+            let useVibrancy = usesVibrancy && blurEnabled
             let overlay = BlurOverlay(
                 screen: screen,
                 animateAppearance: animate,
-                vibrancy: usesVibrancy,
+                vibrancy: useVibrancy,
                 blurRadius: blurRadius
             )
             overlay.setChromeClear(keepChrome)
