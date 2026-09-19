@@ -536,16 +536,32 @@ final class PrivacyController: ObservableObject {
 
     /// Round-trips an `NSColor` through its sRGB hex form for `UserDefaults`,
     /// which has no native colour type.
+    /// Encodes a colour as hex. The alpha channel is included (RRGGBBAA) so a
+    /// colour chosen with reduced opacity in the picker survives a relaunch;
+    /// dropping it — as an earlier version did — reset every tint to fully
+    /// opaque (alpha 100%) on next launch.
     private func hexString(_ color: NSColor) -> String {
         let c = color.usingColorSpace(.sRGB) ?? color
         let r = Int(round(min(max(c.redComponent, 0), 1) * 255))
         let g = Int(round(min(max(c.greenComponent, 0), 1) * 255))
         let b = Int(round(min(max(c.blueComponent, 0), 1) * 255))
-        return String(format: "%02X%02X%02X", r, g, b)
+        let a = Int(round(min(max(c.alphaComponent, 0), 1) * 255))
+        return String(format: "%02X%02X%02X%02X", r, g, b, a)
     }
 
+    /// Decodes a previously stored colour. Accepts the 8-digit RRGGBBAA form
+    /// (with alpha) and, for backward compatibility, the legacy 6-digit RRGGBB
+    /// form which is treated as fully opaque.
     private func colorFromHex(_ hex: String) -> NSColor {
-        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return .white }
+        let h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if h.count == 8, let value = UInt64(h, radix: 16) {
+            let r = CGFloat((value >> 24) & 0xFF) / 255
+            let g = CGFloat((value >> 16) & 0xFF) / 255
+            let b = CGFloat((value >> 8) & 0xFF) / 255
+            let a = CGFloat(value & 0xFF) / 255
+            return NSColor(srgbRed: r, green: g, blue: b, alpha: a)
+        }
+        guard h.count == 6, let value = UInt64(h, radix: 16) else { return .white }
         let r = CGFloat((value >> 16) & 0xFF) / 255
         let g = CGFloat((value >> 8) & 0xFF) / 255
         let b = CGFloat(value & 0xFF) / 255
