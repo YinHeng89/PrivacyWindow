@@ -15,6 +15,7 @@ import SwiftUI
 struct GeneralScreen: View {
     @EnvironmentObject var privacy: PrivacyController
     @EnvironmentObject var preferences: SettingsPreferences
+    @EnvironmentObject var i18n: I18n
     @Environment(\.colorScheme) var scheme
     var search: String = ""
 
@@ -88,6 +89,28 @@ struct GeneralScreen: View {
                     )
                 }
             }
+
+            if match("语言 language 界面 显示 英文 中文 切换") {
+                SectionLabel(text: "语言")
+                GlassPanel {
+                    SettingsRow(
+                        icon: "globe",
+                        title: "语言",
+                        subtitle: "设置界面与菜单显示的语言。",
+                        isFirst: true,
+                        trailing: {
+                            GlassPicker(
+                                selection: Binding(
+                                    get: { I18n.shared.language },
+                                    set: { I18n.shared.language = $0 }
+                                ),
+                                items: AppLanguage.allCases,
+                                label: { $0.label }
+                            )
+                        }
+                    )
+                }
+            }
         }
     }
 
@@ -127,7 +150,7 @@ struct GeneralScreen: View {
             HStack(spacing: 6) {
                 Circle().fill(PW.C.green).frame(width: 8, height: 8)
                     .shadow(color: PW.C.green.opacity(0.6), radius: 4)
-                Text("已授权").font(PW.T.mono()).foregroundStyle(PW.C.text2(scheme))
+                Text(i18n.t("已授权")).font(PW.T.mono()).foregroundStyle(PW.C.text2(scheme))
             }
         } else {
             PrimaryButton(title: "打开系统设置", icon: "arrow.up.right") { openPrivacySettings() }
@@ -182,7 +205,7 @@ struct AppearanceScreen: View {
                                 Text("\(Int(privacy.currentBlurRadius.rounded())) pt")
                                     .font(PW.T.mono())
                                     .foregroundStyle(PW.C.text1(scheme))
-                                Text(strengthName)
+                                Text(I18n.shared.t(strengthName))
                                     .font(PW.T.footnote())
                                     .foregroundStyle(PW.C.text3(scheme))
                             }
@@ -225,7 +248,7 @@ struct AppearanceScreen: View {
                                     value: cursorRadius,
                                     range: 20...400,
                                     step: 10,
-                                    accessibilityLabel: "鼠标清晰范围"
+                                    accessibilityLabel: I18n.shared.t("鼠标清晰范围")
                                 )
                                 .padding(.top, 6)
                             }
@@ -263,6 +286,7 @@ struct AppearanceScreen: View {
 
 struct BehaviorScreen: View {
     @EnvironmentObject var privacy: PrivacyController
+    @EnvironmentObject var i18n: I18n
     @Environment(\.colorScheme) var scheme
     var search: String = ""
 
@@ -344,7 +368,7 @@ struct BehaviorScreen: View {
                             subtitle: row.subtitle,
                             isFirst: index == 0,
                             trailing: {
-                                Text(row.detail)
+                                Text(I18n.shared.t(row.detail))
                                     .font(PW.T.mono())
                                     .foregroundStyle(PW.C.text2(scheme))
                             }
@@ -465,6 +489,7 @@ private struct ExcludedAppRow: View {
 /// built without typing bundle identifiers.
 private struct ExcludedAppAddRow: View {
     @EnvironmentObject var privacy: PrivacyController
+    @EnvironmentObject var i18n: I18n
     @Environment(\.colorScheme) var scheme
 
     /// Running apps with a Dock presence, minus this one. Menu-bar-only agents
@@ -484,10 +509,10 @@ private struct ExcludedAppAddRow: View {
         HStack(spacing: PW.S.s3) {
             IconTile(systemName: "plus", tint: .neutral)
             VStack(alignment: .leading, spacing: 2) {
-                Text("添加应用")
+                Text(I18n.shared.t("添加应用"))
                     .font(PW.T.title())
                     .foregroundStyle(PW.C.text1(scheme))
-                Text(candidates.isEmpty ? "没有正在运行的常规应用可添加。" : "从正在运行的应用中选择。")
+                Text(I18n.shared.t(candidates.isEmpty ? "没有正在运行的常规应用可添加。" : "从正在运行的应用中选择。"))
                     .font(PW.T.bodyRegular())
                     .foregroundStyle(PW.C.text2(scheme))
             }
@@ -502,14 +527,14 @@ private struct ExcludedAppAddRow: View {
                                 if let icon = app.icon {
                                     Image(nsImage: icon).resizable().frame(width: 16, height: 16)
                                 }
-                                Text(app.localizedName ?? app.bundleIdentifier ?? "未知应用")
+                                Text(app.localizedName ?? app.bundleIdentifier ?? I18n.shared.t("未知应用"))
                             }
                         }
                     }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus")
-                        Text("添加")
+                        Text(i18n.t("添加"))
                     }
                     .font(PW.T.body())
                     .padding(.horizontal, 12)
@@ -560,6 +585,7 @@ private struct PowerRows {
 
 struct AboutScreen: View {
     @EnvironmentObject var privacy: PrivacyController
+    @EnvironmentObject var i18n: I18n
     @Environment(\.colorScheme) var scheme
     var search: String = ""
 
@@ -577,9 +603,9 @@ struct AboutScreen: View {
                             .interpolation(.high)
                             .frame(width: 112, height: 112)
                             .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
-                        Text("隐私窗口")
+                        Text(I18n.shared.t("隐私窗口"))
                             .font(.system(size: 22, weight: .semibold))
-                        Text("只有当前窗口是清晰的")
+                        Text(I18n.shared.t("只有当前窗口是清晰的"))
                             .font(PW.T.bodyRegular())
                             .foregroundStyle(PW.C.text2(scheme))
                         HStack(spacing: 6) {
@@ -626,7 +652,7 @@ struct AboutScreen: View {
                         subtitle: "模糊由截图得来，这是唯一需要的权限 —— 没有读取输入、没有辅助功能权限。",
                         isFirst: true,
                         trailing: {
-                            Text(privacy.hasScreenRecordingPermission ? "已授权" : "未授权")
+                            Text(i18n.t(privacy.hasScreenRecordingPermission ? "已授权" : "未授权"))
                                 .font(PW.T.mono())
                                 .foregroundStyle(privacy.hasScreenRecordingPermission ? PW.C.green : PW.C.orange)
                         }
@@ -640,7 +666,7 @@ struct AboutScreen: View {
         let info = Bundle.main.infoDictionary ?? [:]
         let short = (info["CFBundleShortVersionString"] as? String) ?? "—"
         let build = (info["CFBundleVersion"] as? String) ?? "—"
-        return "版本 \(short)（\(build)）"
+        return I18n.shared.t("版本 %@（%@）", short, build)
     }
 
     private func match(_ keywords: String) -> Bool { settingsSearchMatch(keywords, search: search) }

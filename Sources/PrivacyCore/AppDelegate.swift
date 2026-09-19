@@ -24,6 +24,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings: { window.open() }
         )
         installMainMenu()
+        // The main menu is visible while Settings is open (the window makes the
+        // app regular), so its "关于/退出" labels must follow the chosen language.
+        NotificationCenter.default.addObserver(
+            forName: I18n.languageDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.installMainMenu()
+            }
+        }
     }
 
     /// Tears the effect down on the way out.
@@ -52,13 +61,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(
-            withTitle: "关于隐私窗口",
+            withTitle: I18n.shared.t("关于隐私窗口"),
             action: #selector(AppDelegate.showAbout),
             keyEquivalent: ""
         )
         appMenu.addItem(.separator())
         appMenu.addItem(
-            withTitle: "退出隐私窗口",
+            withTitle: I18n.shared.t("退出隐私窗口"),
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 // MARK: - Preferences that belong to the shell, not the effect
@@ -17,9 +18,9 @@ enum MenuBarClickAction: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .showMenu: return "显示菜单"
-        case .toggleBlur: return "开关模糊"
-        case .openSettings: return "打开设置"
+        case .showMenu: return I18n.shared.t("显示菜单")
+        case .toggleBlur: return I18n.shared.t("开关模糊")
+        case .openSettings: return I18n.shared.t("打开设置")
         }
     }
 }
@@ -32,9 +33,9 @@ enum AppearancePreference: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .system: return "跟随系统"
-        case .light: return "浅色"
-        case .dark: return "深色"
+        case .system: return I18n.shared.t("跟随系统")
+        case .light: return I18n.shared.t("浅色")
+        case .dark: return I18n.shared.t("深色")
         }
     }
     var colorScheme: ColorScheme? {
@@ -95,10 +96,10 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .general: return "通用"
-        case .appearance: return "外观"
-        case .behavior: return "行为"
-        case .about: return "关于"
+        case .general: return I18n.shared.t("通用")
+        case .appearance: return I18n.shared.t("外观")
+        case .behavior: return I18n.shared.t("行为")
+        case .about: return I18n.shared.t("关于")
         }
     }
     var icon: String {
@@ -125,6 +126,7 @@ struct SettingsRootView: View {
     @EnvironmentObject var privacy: PrivacyController
     @EnvironmentObject var preferences: SettingsPreferences
     @EnvironmentObject var selection: SettingsTabSelection
+    @EnvironmentObject var i18n: I18n
     @Environment(\.colorScheme) var scheme
 
     @State private var searchText = ""
@@ -138,7 +140,6 @@ struct SettingsRootView: View {
                 content
             }
         }
-        .preferredColorScheme(preferences.colorScheme.colorScheme)
         .frame(minWidth: 900, minHeight: 620)
         .background(
             KeyboardShortcutsCatcher(
@@ -168,7 +169,7 @@ struct SettingsRootView: View {
                     .interpolation(.high)
                     .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("隐私窗口")
+                    Text(i18n.t("隐私窗口"))
                         .font(.system(size: 15, weight: .semibold))
                         .tracking(-0.16)
                     Text(versionString)
@@ -193,7 +194,7 @@ struct SettingsRootView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(PW.C.text2(scheme))
                     .frame(width: 22, height: 22)
-                TextField("搜索…", text: $searchText)
+                TextField(i18n.t("搜索…"), text: $searchText)
                     .textFieldStyle(.plain)
                     .font(PW.T.body())
                     .focused($searchFocused)
@@ -281,7 +282,7 @@ struct SettingsRootView: View {
                     // Search spans every tab, not just the visible one. Each
                     // screen renders only its matching sections, and screens
                     // with no matches contribute nothing.
-                    PageHeader("搜索", subtitle: "全部设置中匹配「\(searchText)」的结果。按 ⎋ 清除。")
+                    PageHeader("搜索", subtitle: I18n.shared.t("全部设置中匹配「%@」的结果。按 ⎋ 清除。", searchText))
                     GeneralScreen(search: searchText)
                     AppearanceScreen(search: searchText)
                     BehaviorScreen(search: searchText)
@@ -462,11 +463,43 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// window up from a status item is a race, not a single call.
     private var focusWork: DispatchWorkItem?
     private var focusAttempt = 0
+    /// Rebuilds the window title when the language flips, since the title is set
+    /// once at creation and the app has no other mechanism to refresh it.
+    private var languageObserver: NSObjectProtocol?
+    /// Keeps the window's appearance in step with the 配色 preference. Driven
+    /// here, at the NSWindow level, because SwiftUI's `.preferredColorScheme`
+    /// never restores the system look once an explicit light/dark has been set.
+    private var appearanceCancellable: AnyCancellable?
+
+    /// The window appearance for a 配色 preference. `nil` — for 「跟随系统」 —
+    /// lets the window track the system look, including live changes while the
+    /// window is open.
+    private static func windowAppearance(for preference: AppearancePreference) -> NSAppearance? {
+        switch preference {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
 
     init(privacy: PrivacyController, preferences: SettingsPreferences) {
         self.privacy = privacy
         self.preferences = preferences
         super.init()
+        languageObserver = NotificationCenter.default.addObserver(
+            forName: I18n.languageDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.window?.title = I18n.shared.t("隐私窗口设置")
+            }
+        }
+        appearanceCancellable = preferences.$colorScheme
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] preference in
+                MainActor.assumeIsolated {
+                    self?.window?.appearance = Self.windowAppearance(for: preference)
+                }
+            }
     }
 
     /// Opens the window, optionally on a particular tab.
@@ -477,8 +510,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 .environmentObject(privacy)
                 .environmentObject(preferences)
                 .environmentObject(selection)
+                .environmentObject(I18n.shared)
             let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-            window.title = "隐私窗口设置"
+            window.title = I18n.shared.t("隐私窗口设置")
             window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView, .resizable]
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
@@ -494,6 +528,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.hidesOnDeactivate = false
             window.delegate = self
             window.center()
+            // Initial appearance: the `colorScheme` sink below only fires on a
+            // *change*, so a window opened while the preference is already
+            // light/dark would otherwise start in the system look. `.system`
+            // resolves to `nil`, which is the correct "track the OS" state.
+            window.appearance = Self.windowAppearance(for: preferences.colorScheme)
             self.window = window
         }
         // An `LSUIElement` app is an **accessory**: no Dock tile, and — the part

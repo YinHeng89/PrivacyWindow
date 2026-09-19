@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 @MainActor
 final class StatusItemController {
@@ -12,6 +13,8 @@ final class StatusItemController {
     // having shown one. Touching a row that does not exist would crash on a
     // click that has nothing to do with the menu.
     private var toggleItem: NSMenuItem?
+    /// Combine lifetime for the click-action observer that (re)assigns the menu.
+    private var cancellables: [AnyCancellable] = []
     private var strengthItems: [NSMenuItem] = []
     private var chromeItem: NSMenuItem?
     private var autoPauseItem: NSMenuItem?
@@ -48,12 +51,9 @@ final class StatusItemController {
         if let button = statusItem.button {
             button.image = Self.menuBarIcon()
             button.imagePosition = .imageLeading
-            // Handled by us rather than by assigning `statusItem.menu`: that
-            // combination pops the menu up *and* sends the action, and calling
-            // `performClick` from the action re-enters it. Owning the click lets
-            // a left click and a right click mean different things.
-            button.target = self
-            button.action = #selector(statusBarClicked(_:))
+            // Both left and right clicks reach the button; `reconcileMenuAssignment`
+            // decides whether the system owns the click (showMenu → native menu)
+            // or we do (toggle / open settings → our action).
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         // The on/off flip has exactly one broadcaster and this is its one
@@ -64,18 +64,57 @@ final class StatusItemController {
             self?.reflectEnabled(on)
         }
         reflectEnabled(privacy.isEnabled)
+
+        // The left-click action decides whether the status bar shows the menu
+        // natively (cap-free) or hands the click back to our button. Rebuild
+        // whenever the action or the UI language flips so the menu stays current.
+        NotificationCenter.default.addObserver(
+            forName: I18n.languageDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.reconcileMenuAssignment()
+        }
+        preferences.$menuBarClickAction
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.reconcileMenuAssignment() }
+            .store(in: &cancellables)
+        reconcileMenuAssignment()
+    }
+
+    /// Routes the status-bar click according to `menuBarClickAction`.
+    ///
+    /// When the action is `showMenu`, the menu is handed to the system via
+    /// `statusItem.menu` — the one presentation AppKit draws with *no* upward
+    /// cap, which is what the user objected to. The button's action is cleared
+    /// so the system owns the click (both left and right reveal the menu). For
+    /// the other two actions the menu is removed and our button handles the
+    /// click; a right-click still opens the menu through `showMenu()`.
+    private func reconcileMenuAssignment() {
+        guard let button = statusItem.button else { return }
+        if preferences.menuBarClickAction == .showMenu {
+            statusItem.menu = buildMenu()
+            button.target = nil
+            button.action = nil
+        } else {
+            statusItem.menu = nil
+            button.target = self
+            button.action = #selector(statusBarClicked(_:))
+        }
     }
 
     /// Reflects the on/off state: the toggle item's title for a menu that may
     /// already be open, and the icon's weight for every moment in between — a
     /// dimmed eye reads as "not watching" without inventing a second glyph.
     private func reflectEnabled(_ on: Bool) {
-        toggleItem?.title = on ? "停用隐私模糊" : "启用隐私模糊"
+        toggleItem?.title = I18n.shared.t(on ? "停用隐私模糊" : "启用隐私模糊")
         statusItem.button?.alphaValue = on ? 1 : 0.45
     }
 
     /// Rebuilt on every open, so items that mirror state — the on/off label,
     /// the checked strength — can never be stale.
+    ///
+    /// Blur Strength and Cursor Reveal Radius are nested submenus: hover (or
+    /// press → / Enter) to reveal the level/radius choices, keeping the
+    /// top-level menu short.
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
         // Both collections are rebuilt from scratch: the menu is, and stale
@@ -84,7 +123,7 @@ final class StatusItemController {
         cursorRadiusItems = []
 
         let toggle = NSMenuItem(
-            title: privacy.isEnabled ? "停用隐私模糊" : "启用隐私模糊",
+            title: I18n.shared.t(privacy.isEnabled ? "停用隐私模糊" : "启用隐私模糊"),
             action: #selector(toggle),
             keyEquivalent: ""
         )
@@ -92,7 +131,7 @@ final class StatusItemController {
         toggleItem = toggle
         menu.addItem(toggle)
 
-        let strength = NSMenuItem(title: "模糊强度", action: nil, keyEquivalent: "")
+        let strength = NSMenuItem(title: I18n.shared.t("模糊强度"), action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for level in levels {
             let item = NSMenuItem(title: level.title, action: #selector(setStrength(_:)), keyEquivalent: "")
@@ -106,7 +145,7 @@ final class StatusItemController {
         menu.addItem(strength)
 
         let chrome = NSMenuItem(
-            title: "菜单栏与 Dock 保持清晰",
+            title: I18n.shared.t("菜单栏与 Dock 保持清晰"),
             action: #selector(toggleChrome),
             keyEquivalent: ""
         )
@@ -116,7 +155,7 @@ final class StatusItemController {
         menu.addItem(chrome)
 
         let autoPause = NSMenuItem(
-            title: "全屏时停止模糊",
+            title: I18n.shared.t("全屏时停止模糊"),
             action: #selector(toggleAutoPause),
             keyEquivalent: ""
         )
@@ -126,7 +165,7 @@ final class StatusItemController {
         menu.addItem(autoPause)
 
         let cursor = NSMenuItem(
-            title: "鼠标周围保持清晰",
+            title: I18n.shared.t("鼠标周围保持清晰"),
             action: #selector(toggleCursorReveal),
             keyEquivalent: ""
         )
@@ -139,7 +178,7 @@ final class StatusItemController {
         // an item that owns a submenu is its own corner of AppKit, and this is a
         // choice that has to feel certain. Picking a radius turns the effect on
         // — the only reason to be choosing one.
-        let cursorSize = NSMenuItem(title: "光标清晰范围", action: nil, keyEquivalent: "")
+        let cursorSize = NSMenuItem(title: I18n.shared.t("光标清晰范围"), action: nil, keyEquivalent: "")
         let cursorSub = NSMenu()
         for option in cursorRadii {
             let item = NSMenuItem(title: option.title, action: #selector(setCursorRadius(_:)), keyEquivalent: "")
@@ -154,12 +193,12 @@ final class StatusItemController {
 
         menu.addItem(.separator())
 
-        let settings = NSMenuItem(title: "设置…", action: #selector(openSettingsWindow), keyEquivalent: ",")
+        let settings = NSMenuItem(title: I18n.shared.t("设置…"), action: #selector(openSettingsWindow), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: I18n.shared.t("退出"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
 
@@ -181,10 +220,35 @@ final class StatusItemController {
 
     /// Pops the menu up under the icon. Deliberately not `performClick`, which
     /// would re-enter `statusBarClicked` and pop it up again.
+    ///
+    /// Presented as a *context menu* on the status button. Every other route —
+    /// anchored `popUp(positioning:at:in: button)` and even a detached
+    /// `popUp(positioning:at:in: nil)` — makes Tahoe's Liquid Glass draw the
+    /// little upward cap/arrow at the top of the menu, which reads as an arrow
+    /// sitting above the first item (启用/停止). Context-menu presentation is
+    /// the one route that renders the menu with no cap.
     private func showMenu() {
         let menu = buildMenu()
         guard let button = statusItem.button else { return }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY + 4), in: button)
+        let event: NSEvent
+        if let current = NSApp.currentEvent {
+            event = current
+        } else if let synthesized = NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: button.window.map({ $0.convertPoint(toScreen: button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)) }) ?? NSEvent.mouseLocation,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: button.window?.windowNumber ?? 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ) {
+            event = synthesized
+        } else {
+            return
+        }
+        NSMenu.popUpContextMenu(menu, with: event, for: button)
     }
 
     @objc private func openSettingsWindow() {
@@ -341,7 +405,7 @@ final class StatusItemController {
         let image = NSImage(size: NSSize(width: side, height: side))
         image.addRepresentation(rep)
         image.isTemplate = true
-        image.accessibilityDescription = "隐私窗口"
+        image.accessibilityDescription = I18n.shared.t("隐私窗口")
         return image
     }
 }

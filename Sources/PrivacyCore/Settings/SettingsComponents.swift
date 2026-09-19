@@ -133,7 +133,7 @@ struct SectionLabel: View {
     @Environment(\.colorScheme) var scheme
     let text: String
     var body: some View {
-        Text(text)
+        Text(I18n.shared.t(text))
             .font(PW.T.caption())
             .tracking(0.9)
             .foregroundStyle(PW.C.text3(scheme))
@@ -145,6 +145,7 @@ struct SectionLabel: View {
 
 struct PageHeader<Trailing: View>: View {
     @Environment(\.colorScheme) var scheme
+    @EnvironmentObject var i18n: I18n
     let title: String
     let subtitle: String?
     @ViewBuilder var trailing: Trailing
@@ -158,12 +159,12 @@ struct PageHeader<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: PW.S.s4) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
+                Text(i18n.t(title))
                     .font(PW.T.pageTitle())
                     .tracking(-0.4)
                     .foregroundStyle(PW.C.text1(scheme))
                 if let subtitle {
-                    Text(subtitle)
+                    Text(i18n.t(subtitle))
                         .font(PW.T.bodyRegular())
                         .foregroundStyle(PW.C.text2(scheme))
                 }
@@ -215,6 +216,7 @@ struct IconTile: View {
 /// the icon's right edge so it never crosses the icon column.
 struct SettingsRow<Trailing: View, Below: View>: View {
     @Environment(\.colorScheme) var scheme
+    @EnvironmentObject var i18n: I18n
     let icon: String?
     let iconTint: IconTile.Tint
     let title: String
@@ -250,11 +252,11 @@ struct SettingsRow<Trailing: View, Below: View>: View {
             HStack(alignment: .center, spacing: PW.S.s3) {
                 if let icon { IconTile(systemName: icon, tint: iconTint) }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text(I18n.shared.t(title))
                         .font(PW.T.title())
                         .foregroundStyle(PW.C.text1(scheme))
                     if let subtitle {
-                        Text(subtitle)
+                        Text(I18n.shared.t(subtitle))
                             .font(PW.T.bodyRegular())
                             .foregroundStyle(PW.C.text2(scheme))
                             .fixedSize(horizontal: false, vertical: true)
@@ -307,7 +309,7 @@ struct GlassSwitch: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityValue(isOn ? "打开" : "关闭")
+        .accessibilityValue(isOn ? I18n.shared.t("打开") : I18n.shared.t("关闭"))
     }
 }
 
@@ -318,7 +320,7 @@ struct GlassSlider: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
     var step: Double? = nil
-    var accessibilityLabel: String = "滑块"
+    var accessibilityLabel: String = I18n.shared.t("滑块")
     @Environment(\.colorScheme) var scheme
 
     var body: some View {
@@ -427,35 +429,75 @@ struct GlassSegmented<T: Hashable & Identifiable>: View {
 
 /// A dropdown that looks right inside a row, instead of AppKit's default popup
 /// with its own chrome and its own opinion about padding.
+///
+/// Deliberately NOT built on SwiftUI's `Menu`. On macOS 26 the menu machinery
+/// insists on drawing its own indicator: the deprecated `.borderlessButton`
+/// style put it *before* the label (and dropped the capsule background), and
+/// even the default style kept injecting one inside a live window — while the
+/// same code rendered correctly offscreen, which is how it kept slipping past
+/// verification. So the trigger is a plain HStack (verified pixel-exact by the
+/// offline probe) and the option list is presented by hand in a popover.
 struct GlassPicker<T: Hashable & Identifiable>: View {
     @Binding var selection: T
     let items: [T]
     let label: (T) -> String
     @Environment(\.colorScheme) var scheme
+    @State private var isOpen = false
 
     var body: some View {
-        Menu {
-            ForEach(items) { item in
-                Button(label(item)) { selection = item }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Text(label(selection)).font(PW.T.body())
-                VStack(spacing: 0) {
-                    Image(systemName: "chevron.up").font(.system(size: 7, weight: .bold))
-                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
-                }
+        HStack(spacing: 6) {
+            Text(label(selection)).font(PW.T.body())
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(PW.C.text3(scheme))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: PW.R.control).fill(PW.C.control(scheme)))
-            .overlay(RoundedRectangle(cornerRadius: PW.R.control).strokeBorder(PW.C.edgeRing(scheme), lineWidth: 0.5))
-            .foregroundStyle(PW.C.text1(scheme))
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: PW.R.control).fill(PW.C.control(scheme)))
+        .overlay(RoundedRectangle(cornerRadius: PW.R.control).strokeBorder(PW.C.edgeRing(scheme), lineWidth: 0.5))
+        .foregroundStyle(PW.C.text1(scheme))
+        .contentShape(RoundedRectangle(cornerRadius: PW.R.control))
+        .onTapGesture { isOpen = true }
+        .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(items) { item in
+                    Button {
+                        selection = item
+                        isOpen = false
+                    } label: {
+                        GlassPickerRow(text: label(item), isSelected: item == selection)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(6)
+            .frame(minWidth: 150)
+        }
+    }
+}
+
+/// One option inside a `GlassPicker` popover: text, and a checkmark on the
+/// selected row, with a hover highlight like a native menu item.
+private struct GlassPickerRow: View {
+    let text: String
+    let isSelected: Bool
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(text).font(PW.T.body())
+            Spacer(minLength: 12)
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color(nsColor: .controlAccentColor))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 6).fill(hovering ? Color.primary.opacity(0.08) : Color.clear))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
     }
 }
 
@@ -490,7 +532,7 @@ struct GhostButton: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if let icon { Image(systemName: icon).font(.system(size: 12, weight: .medium)) }
-                Text(title).font(.system(size: 13, weight: .semibold))
+                Text(I18n.shared.t(title)).font(.system(size: 13, weight: .semibold))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -520,7 +562,7 @@ struct PrimaryButton: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if let icon { Image(systemName: icon).font(.system(size: 12, weight: .medium)) }
-                Text(title).font(.system(size: 13, weight: .semibold))
+                Text(I18n.shared.t(title)).font(.system(size: 13, weight: .semibold))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -561,10 +603,10 @@ struct Callout: View {
                 .background(Circle().fill(tint))
                 .foregroundStyle(.white)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
+                Text(I18n.shared.t(title))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PW.C.text1(scheme))
-                Text(message)
+                Text(I18n.shared.t(message))
                     .font(PW.T.bodyRegular())
                     .foregroundStyle(PW.C.text2(scheme))
                     .fixedSize(horizontal: false, vertical: true)

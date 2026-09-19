@@ -710,10 +710,10 @@ final class PrivacyController: ObservableObject {
     private func warnNoScreenRecordingPermission() {
         guard !capturer.hasPermission else { return }
         let alert = NSAlert()
-        alert.messageText = "需要「屏幕录制」权限"
-        alert.informativeText = "隐私模糊通过截图来实现。请在「系统设置 › 隐私与安全性 › 屏幕录制」中打开「PrivacyWindow」，然后重新打开效果。"
-        alert.addButton(withTitle: "打开系统设置")
-        alert.addButton(withTitle: "稍后")
+        alert.messageText = I18n.shared.t("需要「屏幕录制」权限")
+        alert.informativeText = I18n.shared.t("隐私模糊通过截图来实现。请在「系统设置 › 隐私与安全性 › 屏幕录制」中打开「PrivacyWindow」，然后重新打开效果。")
+        alert.addButton(withTitle: I18n.shared.t("打开系统设置"))
+        alert.addButton(withTitle: I18n.shared.t("稍后"))
         NSApp.activate(ignoringOtherApps: true)
         permissionAlert = alert
         // Prefer the display the user is looking at, which is where the
@@ -965,10 +965,10 @@ final class PrivacyController: ObservableObject {
     /// Tells the user that the grant arrived but the process cannot use it.
     private func showRestartHint() {
         let alert = NSAlert()
-        alert.messageText = "需要重启隐私窗口"
-        alert.informativeText = "「屏幕录制」权限已生效，但 macOS 只在应用启动时读取一次该授权——当前进程拿不到画面，所以模糊不会有变化。重新打开应用即可。"
-        alert.addButton(withTitle: "重新打开")
-        alert.addButton(withTitle: "稍后")
+        alert.messageText = I18n.shared.t("需要重启隐私窗口")
+        alert.informativeText = I18n.shared.t("「屏幕录制」权限已生效，但 macOS 只在应用启动时读取一次该授权——当前进程拿不到画面，所以模糊不会有变化。重新打开应用即可。")
+        alert.addButton(withTitle: I18n.shared.t("重新打开"))
+        alert.addButton(withTitle: I18n.shared.t("稍后"))
         NSApp.activate(ignoringOtherApps: true)
         permissionAlert = alert
         let host = focus.flatMap { overlays[$0.displayID] }?.window ?? overlays.values.first?.window
